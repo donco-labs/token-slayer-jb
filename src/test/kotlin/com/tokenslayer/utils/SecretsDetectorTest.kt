@@ -1,11 +1,12 @@
 package com.tokenslayer.utils
 
-import org.junit.jupiter.api.Assertions.*
-import org.junit.jupiter.api.Test
 import com.tokenslayer.types.SecretsScanResult.Severity
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
 
 class SecretsDetectorTest {
-
     // ── Content detection ─────────────────────────────────────────────────────
 
     @Test fun `detects AWS access key`() {
@@ -50,12 +51,16 @@ class SecretsDetectorTest {
     }
 
     @Test fun `clean code is not flagged`() {
-        val result = SecretsDetector.scan("Calculator.java", """
-            public class Calculator {
-                public int add(int a, int b) { return a + b; }
-                public int multiply(int a, int b) { return a * b; }
-            }
-        """.trimIndent())
+        val result =
+            SecretsDetector.scan(
+                "Calculator.java",
+                """
+                public class Calculator {
+                    public int add(int a, int b) { return a + b; }
+                    public int multiply(int a, int b) { return a * b; }
+                }
+                """.trimIndent(),
+            )
         assertFalse(result.hasSecrets)
         assertEquals(Severity.LOW, result.severity)
     }

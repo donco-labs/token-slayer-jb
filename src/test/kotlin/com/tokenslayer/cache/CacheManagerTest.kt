@@ -1,12 +1,14 @@
 package com.tokenslayer.cache
 
 import com.tokenslayer.types.CacheEntry
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 
 class CacheManagerTest {
-
     private lateinit var cache: CacheManager
 
     @BeforeEach
@@ -15,7 +17,12 @@ class CacheManagerTest {
         cache.clear()
     }
 
-    private fun makeEntry(path: String, hash: String, original: Int = 1000, skeleton: Int = 100) = CacheEntry(
+    private fun makeEntry(
+        path: String,
+        hash: String,
+        original: Int = 1000,
+        skeleton: Int = 100,
+    ) = CacheEntry(
         skeleton = "// skeleton for $path",
         originalTokens = original,
         skeletonTokens = skeleton,

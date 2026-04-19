@@ -3,29 +3,33 @@ package com.tokenslayer.extraction
 import com.tokenslayer.types.StructuralSymbol
 import com.tokenslayer.types.SymbolKind
 import com.tokenslayer.types.Verbosity
-import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class SkeletonBuilderTest {
-
     private val builder = SkeletonBuilder()
 
-    private fun makeClass(name: String, methods: List<String> = emptyList()): StructuralSymbol =
+    private fun makeClass(
+        name: String,
+        methods: List<String> = emptyList(),
+    ): StructuralSymbol =
         StructuralSymbol(
             name = name,
             kind = SymbolKind.CLASS,
             kindLabel = "class",
             signatureLine = "public class $name",
             lineRange = 1..100,
-            children = methods.map { method ->
-                StructuralSymbol(
-                    name = method,
-                    kind = SymbolKind.METHOD,
-                    kindLabel = "method",
-                    signatureLine = "public void $method()",
-                    lineRange = 5..10,
-                )
-            },
+            children =
+                methods.map { method ->
+                    StructuralSymbol(
+                        name = method,
+                        kind = SymbolKind.METHOD,
+                        kindLabel = "method",
+                        signatureLine = "public void $method()",
+                        lineRange = 5..10,
+                    )
+                },
         )
 
     @Test fun `builds header with file and line info`() {
@@ -59,34 +63,38 @@ class SkeletonBuilderTest {
     }
 
     @Test fun `enum lists members in standard mode`() {
-        val enumSymbol = StructuralSymbol(
-            name = "Status",
-            kind = SymbolKind.ENUM,
-            kindLabel = "enum",
-            signatureLine = "enum Status",
-            lineRange = 1..10,
-            children = listOf(
-                StructuralSymbol("ACTIVE", SymbolKind.ENUM_MEMBER, "enum_member", "ACTIVE", 2..2),
-                StructuralSymbol("INACTIVE", SymbolKind.ENUM_MEMBER, "enum_member", "INACTIVE", 3..3),
-            ),
-        )
+        val enumSymbol =
+            StructuralSymbol(
+                name = "Status",
+                kind = SymbolKind.ENUM,
+                kindLabel = "enum",
+                signatureLine = "enum Status",
+                lineRange = 1..10,
+                children =
+                    listOf(
+                        StructuralSymbol("ACTIVE", SymbolKind.ENUM_MEMBER, "enum_member", "ACTIVE", 2..2),
+                        StructuralSymbol("INACTIVE", SymbolKind.ENUM_MEMBER, "enum_member", "INACTIVE", 3..3),
+                    ),
+            )
         val result = builder.build(listOf(enumSymbol), "Status.java", 10, Verbosity.STANDARD)
         assertTrue("ACTIVE" in result)
         assertTrue("INACTIVE" in result)
     }
 
     @Test fun `minimal verbosity shows member count for enums`() {
-        val enumSymbol = StructuralSymbol(
-            name = "Direction",
-            kind = SymbolKind.ENUM,
-            kindLabel = "enum",
-            signatureLine = "enum Direction",
-            lineRange = 1..6,
-            children = listOf(
-                StructuralSymbol("NORTH", SymbolKind.ENUM_MEMBER, "enum_member", "NORTH", 2..2),
-                StructuralSymbol("SOUTH", SymbolKind.ENUM_MEMBER, "enum_member", "SOUTH", 3..3),
-            ),
-        )
+        val enumSymbol =
+            StructuralSymbol(
+                name = "Direction",
+                kind = SymbolKind.ENUM,
+                kindLabel = "enum",
+                signatureLine = "enum Direction",
+                lineRange = 1..6,
+                children =
+                    listOf(
+                        StructuralSymbol("NORTH", SymbolKind.ENUM_MEMBER, "enum_member", "NORTH", 2..2),
+                        StructuralSymbol("SOUTH", SymbolKind.ENUM_MEMBER, "enum_member", "SOUTH", 3..3),
+                    ),
+            )
         val result = builder.build(listOf(enumSymbol), "Direction.java", 6, Verbosity.MINIMAL)
         assertTrue("2 members" in result)
         assertFalse("NORTH" in result)
