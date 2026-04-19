@@ -14,7 +14,6 @@ import com.tokenslayer.services.TokenSlayerService
  * - Registers VirtualFile listener for auto-invalidation on file changes
  */
 class TokenSlayerPlugin : ProjectActivity {
-
     private val log = logger<TokenSlayerPlugin>()
 
     override suspend fun execute(project: Project) {
@@ -40,13 +39,17 @@ class TokenSlayerPlugin : ProjectActivity {
      * Write .github/copilot-mcp.json so GitHub Copilot auto-discovers our MCP server.
      * This follows the official MCP server discovery mechanism for GitHub Copilot.
      */
-    private fun writeMcpConfig(project: Project, port: Int) {
+    private fun writeMcpConfig(
+        project: Project,
+        port: Int,
+    ) {
         val basePath = project.basePath ?: return
         try {
             val mcpDir = java.io.File(basePath, ".github")
             mcpDir.mkdirs()
             val mcpFile = java.io.File(mcpDir, "copilot-mcp.json")
-            mcpFile.writeText("""
+            mcpFile.writeText(
+                """
                 {
                   "servers": {
                     "TokenSlayer": {
@@ -56,7 +59,8 @@ class TokenSlayerPlugin : ProjectActivity {
                     }
                   }
                 }
-            """.trimIndent())
+                """.trimIndent(),
+            )
             log.info("TokenSlayer: Wrote MCP config to ${mcpFile.path}")
         } catch (e: Exception) {
             log.warn("TokenSlayer: Could not write MCP config", e)
@@ -68,7 +72,6 @@ class TokenSlayerPlugin : ProjectActivity {
  * Listens for file changes and invalidates stale cache entries.
  */
 private class TokenSlayerVfsListener(private val project: Project) : VirtualFileListener {
-
     private val cache get() = CacheManager.getInstance()
     private val analyzer get() = ProjectAnalyzerService.getInstance(project)
 

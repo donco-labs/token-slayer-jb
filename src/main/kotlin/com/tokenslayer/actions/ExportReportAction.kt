@@ -20,7 +20,6 @@ import java.time.format.DateTimeFormatter
  * Equivalent of VS Code's "TokenSlayer: Export Savings Report".
  */
 class ExportReportAction : AnAction("Export Savings Report"), DumbAware {
-
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         doExport(project)
@@ -49,7 +48,10 @@ class ExportReportAction : AnAction("Export Savings Report"), DumbAware {
                 ).notify(project)
         }
 
-        private fun buildReport(stats: WorkspaceStats, projectName: String): String {
+        private fun buildReport(
+            stats: WorkspaceStats,
+            projectName: String,
+        ): String {
             val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
             return buildString {
                 appendLine("# ⚡ TokenSlayer Report")

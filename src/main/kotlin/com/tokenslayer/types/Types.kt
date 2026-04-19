@@ -5,23 +5,36 @@ package com.tokenslayer.types
 enum class Verbosity(val label: String) {
     MINIMAL("minimal"),
     STANDARD("standard"),
-    DETAILED("detailed");
+    DETAILED("detailed"),
+    ;
 
     companion object {
-        fun from(value: String): Verbosity =
-            entries.firstOrNull { it.label == value } ?: STANDARD
+        fun from(value: String): Verbosity = entries.firstOrNull { it.label == value } ?: STANDARD
     }
 }
 
 // ─── Symbol kinds (mirrors VS Code's SymbolKind) ──────────────────────────────
 
 enum class SymbolKind {
-    CLASS, INTERFACE, ENUM, ENUM_MEMBER,
-    STRUCT, MODULE, NAMESPACE,
-    FUNCTION, METHOD, CONSTRUCTOR,
-    PROPERTY, FIELD, VARIABLE, CONSTANT,
-    OBJECT, TYPE_ALIAS, TRAIT, IMPL,
-    UNKNOWN;
+    CLASS,
+    INTERFACE,
+    ENUM,
+    ENUM_MEMBER,
+    STRUCT,
+    MODULE,
+    NAMESPACE,
+    FUNCTION,
+    METHOD,
+    CONSTRUCTOR,
+    PROPERTY,
+    FIELD,
+    VARIABLE,
+    CONSTANT,
+    OBJECT,
+    TYPE_ALIAS,
+    TRAIT,
+    IMPL,
+    UNKNOWN,
 }
 
 // ─── Core data classes ────────────────────────────────────────────────────────
@@ -97,9 +110,11 @@ data class WorkspaceStats(
     val excludedFilesList: List<ExcludedFile> = emptyList(),
 ) {
     val reductionPct: Int get() =
-        if (totalOriginalTokens > 0)
+        if (totalOriginalTokens > 0) {
             ((totalTokensSaved.toDouble() / totalOriginalTokens) * 100).toInt()
-        else 0
+        } else {
+            0
+        }
     val cacheHitRate: Int get() {
         val total = cacheHits + cacheMisses
         return if (total > 0) ((cacheHits.toDouble() / total) * 100).toInt() else 0

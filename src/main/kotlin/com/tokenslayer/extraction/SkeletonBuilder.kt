@@ -9,7 +9,6 @@ import com.tokenslayer.types.Verbosity
  * Direct port of VS Code's SkeletonBuilder.ts — same output format, same tree connectors.
  */
 class SkeletonBuilder {
-
     /**
      * Build a skeleton string from a list of top-level symbols.
      */
@@ -119,11 +118,9 @@ class SkeletonBuilder {
         }
     }
 
-    private fun treePrefix(depth: Int): String =
-        if (depth == 0) "" else "├─ "
+    private fun treePrefix(depth: Int): String = if (depth == 0) "" else "├─ "
 
-    private fun basename(filePath: String): String =
-        filePath.split("/", "\\").lastOrNull() ?: filePath
+    private fun basename(filePath: String): String = filePath.split("/", "\\").lastOrNull() ?: filePath
 
     private fun estimateSkeletonLines(symbols: List<StructuralSymbol>): Int {
         var count = 0

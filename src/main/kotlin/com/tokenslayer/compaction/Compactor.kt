@@ -14,7 +14,10 @@ interface Compactor {
      * Post-process or augment symbols extracted by PSI.
      * The compactor can refine signatures, filter noise, or add language-specific symbols.
      */
-    fun refineSymbols(symbols: List<StructuralSymbol>, fileContent: String): List<StructuralSymbol>
+    fun refineSymbols(
+        symbols: List<StructuralSymbol>,
+        fileContent: String,
+    ): List<StructuralSymbol>
 
     /**
      * Clean up a raw signature line into idiomatic form.
@@ -24,15 +27,15 @@ interface Compactor {
 
 /** Factory — returns the best compactor for the given language ID. */
 object CompactorFactory {
-    private val compactors: List<Compactor> = listOf(
-        JavaCompactor(),
-        KotlinCompactor(),
-        PythonCompactor(),
-        JavaScriptCompactor(),
-        GoCompactor(),
-        RustCompactor(),
-    )
+    private val compactors: List<Compactor> =
+        listOf(
+            JavaCompactor(),
+            KotlinCompactor(),
+            PythonCompactor(),
+            JavaScriptCompactor(),
+            GoCompactor(),
+            RustCompactor(),
+        )
 
-    fun forLanguage(languageId: String): Compactor? =
-        compactors.firstOrNull { languageId.lowercase() in it.supportedLanguages }
+    fun forLanguage(languageId: String): Compactor? = compactors.firstOrNull { languageId.lowercase() in it.supportedLanguages }
 }

@@ -12,14 +12,14 @@ import com.tokenslayer.types.SymbolKind
  * PSI gives richer typed information than LSP — we get full modifiers, generics, and annotations.
  */
 class PsiSymbolExtractor {
-
     /**
      * Extract top-level structural symbols from a PSI file.
      * Returns a list of top-level symbols with children nested inside.
      */
-    fun extract(psiFile: PsiFile): List<StructuralSymbol> = ReadAction.compute<List<StructuralSymbol>, Throwable> {
-        extractFromFile(psiFile)
-    }
+    fun extract(psiFile: PsiFile): List<StructuralSymbol> =
+        ReadAction.compute<List<StructuralSymbol>, Throwable> {
+            extractFromFile(psiFile)
+        }
 
     private fun extractFromFile(psiFile: PsiFile): List<StructuralSymbol> {
         val language = psiFile.language.id.lowercase()
@@ -42,12 +42,13 @@ class PsiSymbolExtractor {
     }
 
     private fun convertJavaClass(cls: PsiClass): StructuralSymbol {
-        val kind = when {
-            cls.isInterface -> SymbolKind.INTERFACE
-            cls.isEnum -> SymbolKind.ENUM
-            cls.isAnnotationType -> SymbolKind.INTERFACE
-            else -> SymbolKind.CLASS
-        }
+        val kind =
+            when {
+                cls.isInterface -> SymbolKind.INTERFACE
+                cls.isEnum -> SymbolKind.ENUM
+                cls.isAnnotationType -> SymbolKind.INTERFACE
+                else -> SymbolKind.CLASS
+            }
 
         val signature = buildJavaClassSignature(cls)
         val range = getRange(cls)
@@ -62,7 +63,7 @@ class PsiSymbolExtractor {
                     kindLabel = "field",
                     signatureLine = buildJavaFieldSignature(field),
                     lineRange = getRange(field),
-                )
+                ),
             )
         }
 
@@ -75,7 +76,7 @@ class PsiSymbolExtractor {
                     kindLabel = if (method.isConstructor) "constructor" else "method",
                     signatureLine = buildJavaMethodSignature(method),
                     lineRange = getRange(method),
-                )
+                ),
             )
         }
 
@@ -127,9 +128,10 @@ class PsiSymbolExtractor {
         }
         method.returnType?.let { sb.append("${it.canonicalText} ") }
         sb.append(method.name)
-        val params = method.parameterList.parameters.joinToString(", ") { p ->
-            "${p.type.canonicalText} ${p.name}"
-        }
+        val params =
+            method.parameterList.parameters.joinToString(", ") { p ->
+                "${p.type.canonicalText} ${p.name}"
+            }
         sb.append("($params)")
         return sb.toString().trimEnd()
     }
@@ -173,11 +175,14 @@ class PsiSymbolExtractor {
         val range = getRange(element)
         val signature = extractSignatureLine(element)
 
-        val children = element.children.mapNotNull { child ->
-            if (child is PsiNamedElement && child.name?.isNotBlank() == true) {
-                extractGenericElement(child)
-            } else null
-        }
+        val children =
+            element.children.mapNotNull { child ->
+                if (child is PsiNamedElement && child.name?.isNotBlank() == true) {
+                    extractGenericElement(child)
+                } else {
+                    null
+                }
+            }
 
         return StructuralSymbol(
             name = name,
@@ -216,13 +221,14 @@ class PsiSymbolExtractor {
     }
 
     private fun cleanSignature(line: String): String =
-        line.replace(Regex("""\s*\{.*$"""), "")  // strip opening braces
+        line.replace(Regex("""\s*\{.*$"""), "") // strip opening braces
             .replace(Regex("""\s*:\s*$"""), "")
             .trim()
 
     private fun getRange(element: PsiElement): IntRange {
-        val doc = PsiDocumentManager.getInstance(element.project)
-            .getDocument(element.containingFile) ?: return 0..0
+        val doc =
+            PsiDocumentManager.getInstance(element.project)
+                .getDocument(element.containingFile) ?: return 0..0
         val startLine = doc.getLineNumber(element.textRange.startOffset)
         val endLine = doc.getLineNumber(element.textRange.endOffset)
         return startLine..endLine

@@ -17,48 +17,50 @@ import com.intellij.openapi.vfs.VirtualFile
  */
 @Service(Service.Level.PROJECT)
 class ProjectAnalyzerService(private val project: Project) : DumbAware {
-
     private val log = logger<ProjectAnalyzerService>()
     private val tsService get() = TokenSlayerService.getInstance()
 
     companion object {
-        fun getInstance(project: Project): ProjectAnalyzerService =
-            project.getService(ProjectAnalyzerService::class.java)
+        fun getInstance(project: Project): ProjectAnalyzerService = project.getService(ProjectAnalyzerService::class.java)
     }
 
     /**
      * Analyze all supported files in the project asynchronously with progress.
      */
     fun analyzeAll(onComplete: ((Int) -> Unit)? = null) {
-        ProgressManager.getInstance().run(object : Task.Backgroundable(
-            project, "TokenSlayer: Analyzing workspace…", true
-        ) {
-            override fun run(indicator: ProgressIndicator) {
-                indicator.isIndeterminate = false
-                val files = collectSupportedFiles()
-                val total = files.size
-                log.info("TokenSlayer: Found $total supported files in ${project.name}")
+        ProgressManager.getInstance().run(
+            object : Task.Backgroundable(
+                project,
+                "TokenSlayer: Analyzing workspace…",
+                true,
+            ) {
+                override fun run(indicator: ProgressIndicator) {
+                    indicator.isIndeterminate = false
+                    val files = collectSupportedFiles()
+                    val total = files.size
+                    log.info("TokenSlayer: Found $total supported files in ${project.name}")
 
-                var processed = 0
-                for (file in files) {
-                    if (indicator.isCanceled) break
-                    indicator.fraction = processed.toDouble() / total
-                    indicator.text2 = file.name
+                    var processed = 0
+                    for (file in files) {
+                        if (indicator.isCanceled) break
+                        indicator.fraction = processed.toDouble() / total
+                        indicator.text2 = file.name
 
-                    try {
-                        tsService.analyzeFile(file, project)
-                    } catch (e: Exception) {
-                        log.warn("Error analyzing ${file.path}", e)
+                        try {
+                            tsService.analyzeFile(file, project)
+                        } catch (e: Exception) {
+                            log.warn("Error analyzing ${file.path}", e)
+                        }
+                        processed++
                     }
-                    processed++
-                }
 
-                log.info("TokenSlayer: Workspace analysis complete ($processed/$total files)")
-                ApplicationManager.getApplication().invokeLater {
-                    onComplete?.invoke(processed)
+                    log.info("TokenSlayer: Workspace analysis complete ($processed/$total files)")
+                    ApplicationManager.getApplication().invokeLater {
+                        onComplete?.invoke(processed)
+                    }
                 }
-            }
-        })
+            },
+        )
     }
 
     /**

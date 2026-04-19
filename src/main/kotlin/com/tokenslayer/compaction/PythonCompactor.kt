@@ -1,13 +1,14 @@
 package com.tokenslayer.compaction
 
 import com.tokenslayer.types.StructuralSymbol
-import com.tokenslayer.types.SymbolKind
 
 class PythonCompactor : Compactor {
     override val supportedLanguages = setOf("python")
 
-    override fun refineSymbols(symbols: List<StructuralSymbol>, fileContent: String): List<StructuralSymbol> =
-        symbols.map { refine(it) }
+    override fun refineSymbols(
+        symbols: List<StructuralSymbol>,
+        fileContent: String,
+    ): List<StructuralSymbol> = symbols.map { refine(it) }
 
     private fun refine(symbol: StructuralSymbol): StructuralSymbol {
         val cleaned = cleanSignature(symbol.signatureLine)
@@ -19,8 +20,8 @@ class PythonCompactor : Compactor {
 
     override fun cleanSignature(raw: String): String {
         return raw
-            .replace(Regex(""":\s*$"""), "")          // remove trailing colon
-            .replace(Regex("""#.*$"""), "")           // remove inline comments
+            .replace(Regex(""":\s*$"""), "") // remove trailing colon
+            .replace(Regex("""#.*$"""), "") // remove inline comments
             .trim()
     }
 }

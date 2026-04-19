@@ -53,7 +53,8 @@ intellijPlatform {
         name = "TokenSlayer"
         version = providers.gradleProperty("pluginVersion").get()
         description = providers.fileContents(layout.projectDirectory.file("README.md")).asText
-        changeNotes = """
+        changeNotes =
+            """
             <h2>0.1.0</h2>
             <ul>
                 <li>Initial release: AST-driven skeleton extraction for Java, Kotlin, Python, JS/TS, Go, Rust</li>
@@ -64,7 +65,7 @@ intellijPlatform {
                 <li>Skeleton preview (diff view)</li>
                 <li>Export savings report</li>
             </ul>
-        """.trimIndent()
+            """.trimIndent()
 
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild").get()
@@ -85,9 +86,10 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
-        channels = providers.gradleProperty("pluginVersion").map {
-            listOf(it.substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
-        }
+        channels =
+            providers.gradleProperty("pluginVersion").map {
+                listOf(it.substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
+            }
     }
 
     pluginVerification {

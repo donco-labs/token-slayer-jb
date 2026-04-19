@@ -2,12 +2,11 @@ package com.tokenslayer.settings
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.dsl.builder.*
 import com.tokenslayer.types.Verbosity
-import javax.swing.JComponent
 import javax.swing.JComboBox
+import javax.swing.JComponent
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 
@@ -15,7 +14,6 @@ import javax.swing.SpinnerNumberModel
  * Settings page displayed under Settings → Tools → TokenSlayer.
  */
 class TokenSlayerConfigurable : Configurable {
-
     private val settings = TokenSlayerSettings.getInstance()
 
     private lateinit var maxFileSizeSpinner: JSpinner
@@ -31,9 +29,10 @@ class TokenSlayerConfigurable : Configurable {
     override fun createComponent(): JComponent {
         maxFileSizeSpinner = JSpinner(SpinnerNumberModel(settings.maxFileSizeKB, 1, 10_000, 50))
         cacheMaxEntriesSpinner = JSpinner(SpinnerNumberModel(settings.cacheMaxEntries, 10, 5_000, 50))
-        verbosityCombo = JComboBox(arrayOf("minimal", "standard", "detailed")).apply {
-            selectedItem = settings.verbosity.label
-        }
+        verbosityCombo =
+            JComboBox(arrayOf("minimal", "standard", "detailed")).apply {
+                selectedItem = settings.verbosity.label
+            }
         ignoredPathsField = JBTextField(settings.ignoredPaths.joinToString(", "))
         enableInlayHintsBox = JBCheckBox("Show ⚡ inlay hints above classes and functions", settings.enableInlayHints)
         enableFileDecorationsBox = JBCheckBox("Show reduction badges on Project tree file nodes", settings.enableFileDecorations)

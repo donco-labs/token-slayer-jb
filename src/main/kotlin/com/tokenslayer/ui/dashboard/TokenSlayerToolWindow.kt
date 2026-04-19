@@ -9,10 +9,14 @@ import com.intellij.ui.content.ContentFactory
  * Registers the TokenSlayer sidebar tool window.
  */
 class TokenSlayerToolWindow : ToolWindowFactory {
-    override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
+    override fun createToolWindowContent(
+        project: Project,
+        toolWindow: ToolWindow,
+    ) {
         val panel = DashboardPanel(project)
-        val content = ContentFactory.getInstance()
-            .createContent(panel, "", false)
+        val content =
+            ContentFactory.getInstance()
+                .createContent(panel, "", false)
         toolWindow.contentManager.addContent(content)
     }
 

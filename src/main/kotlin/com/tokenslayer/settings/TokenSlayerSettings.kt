@@ -13,15 +13,23 @@ import com.tokenslayer.types.Verbosity
     storages = [Storage("tokenslayer.xml", roamingType = RoamingType.DISABLED)],
 )
 class TokenSlayerSettings : PersistentStateComponent<TokenSlayerSettings.State> {
-
     data class State(
         var maxFileSizeKB: Int = 500,
         var cacheMaxEntries: Int = 500,
         var verbosityLevel: String = Verbosity.STANDARD.label,
-        var ignoredPaths: MutableList<String> = mutableListOf(
-            "node_modules", ".git", "build", "dist", "out",
-            ".gradle", "target", ".idea", ".vscode", "__pycache__",
-        ),
+        var ignoredPaths: MutableList<String> =
+            mutableListOf(
+                "node_modules",
+                ".git",
+                "build",
+                "dist",
+                "out",
+                ".gradle",
+                "target",
+                ".idea",
+                ".vscode",
+                "__pycache__",
+            ),
         var enableInlayHints: Boolean = true,
         var enableFileDecorations: Boolean = true,
         var autoAnalyzeOnOpen: Boolean = true,
@@ -31,31 +39,45 @@ class TokenSlayerSettings : PersistentStateComponent<TokenSlayerSettings.State> 
 
     var maxFileSizeKB: Int
         get() = state.maxFileSizeKB
-        set(value) { state.maxFileSizeKB = value.coerceIn(1, 10_000) }
+        set(value) {
+            state.maxFileSizeKB = value.coerceIn(1, 10_000)
+        }
 
     var cacheMaxEntries: Int
         get() = state.cacheMaxEntries
-        set(value) { state.cacheMaxEntries = value.coerceIn(10, 5_000) }
+        set(value) {
+            state.cacheMaxEntries = value.coerceIn(10, 5_000)
+        }
 
     var verbosity: Verbosity
         get() = Verbosity.from(state.verbosityLevel)
-        set(value) { state.verbosityLevel = value.label }
+        set(value) {
+            state.verbosityLevel = value.label
+        }
 
     var ignoredPaths: List<String>
         get() = state.ignoredPaths
-        set(value) { state.ignoredPaths = value.toMutableList() }
+        set(value) {
+            state.ignoredPaths = value.toMutableList()
+        }
 
     var enableInlayHints: Boolean
         get() = state.enableInlayHints
-        set(value) { state.enableInlayHints = value }
+        set(value) {
+            state.enableInlayHints = value
+        }
 
     var enableFileDecorations: Boolean
         get() = state.enableFileDecorations
-        set(value) { state.enableFileDecorations = value }
+        set(value) {
+            state.enableFileDecorations = value
+        }
 
     var autoAnalyzeOnOpen: Boolean
         get() = state.autoAnalyzeOnOpen
-        set(value) { state.autoAnalyzeOnOpen = value }
+        set(value) {
+            state.autoAnalyzeOnOpen = value
+        }
 
     override fun getState(): State = state.copy(ignoredPaths = state.ignoredPaths.toMutableList())
 

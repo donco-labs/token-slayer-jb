@@ -5,8 +5,10 @@ import com.tokenslayer.types.StructuralSymbol
 class KotlinCompactor : Compactor {
     override val supportedLanguages = setOf("kotlin")
 
-    override fun refineSymbols(symbols: List<StructuralSymbol>, fileContent: String): List<StructuralSymbol> =
-        symbols.map { refine(it) }
+    override fun refineSymbols(
+        symbols: List<StructuralSymbol>,
+        fileContent: String,
+    ): List<StructuralSymbol> = symbols.map { refine(it) }
 
     private fun refine(symbol: StructuralSymbol): StructuralSymbol {
         val cleaned = cleanSignature(symbol.signatureLine)
@@ -18,9 +20,9 @@ class KotlinCompactor : Compactor {
 
     override fun cleanSignature(raw: String): String {
         return raw
-            .replace(Regex("""\s*\{.*"""), "")         // strip body
-            .replace(Regex("""\s*=\s*$"""), "")        // strip trailing =
-            .replace(Regex("""\s*where\s+.*"""), "")   // strip type constraints (simplified)
+            .replace(Regex("""\s*\{.*"""), "") // strip body
+            .replace(Regex("""\s*=\s*$"""), "") // strip trailing =
+            .replace(Regex("""\s*where\s+.*"""), "") // strip type constraints (simplified)
             .trim()
     }
 }

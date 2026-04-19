@@ -15,15 +15,15 @@ import java.awt.datatransfer.StringSelection
  * Use this to paste directly into GitHub Copilot Chat for manual context injection.
  */
 class CopySummaryAction : AnAction("Copy Skeleton Summary"), DumbAware {
-
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
 
         val tsService = TokenSlayerService.getInstance()
-        val skeleton = tsService.getCachedSkeleton(file.path)
-            ?: tsService.analyzeFile(file, project)?.skeleton
-            ?: return
+        val skeleton =
+            tsService.getCachedSkeleton(file.path)
+                ?: tsService.analyzeFile(file, project)?.skeleton
+                ?: return
 
         val clipboard = Toolkit.getDefaultToolkit().systemClipboard
         clipboard.setContents(StringSelection(skeleton), null)

@@ -4,10 +4,10 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
-import com.intellij.openapi.project.Project
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.compaction.CompactorFactory
 import com.tokenslayer.extraction.PsiSymbolExtractor
@@ -23,7 +23,6 @@ import com.tokenslayer.utils.TokenEstimator
  */
 @Service(Service.Level.APP)
 class TokenSlayerService {
-
     private val log = logger<TokenSlayerService>()
     private val extractor = PsiSymbolExtractor()
     private val skeletonBuilder = SkeletonBuilder()
@@ -34,13 +33,21 @@ class TokenSlayerService {
     val recentActivity = ArrayDeque<CacheEntry>(20)
 
     companion object {
-        val SUPPORTED_EXTENSIONS = setOf(
-            "java", "kt", "kts",
-            "py", "pyi",
-            "js", "jsx", "ts", "tsx", "mjs",
-            "go",
-            "rs",
-        )
+        val SUPPORTED_EXTENSIONS =
+            setOf(
+                "java",
+                "kt",
+                "kts",
+                "py",
+                "pyi",
+                "js",
+                "jsx",
+                "ts",
+                "tsx",
+                "mjs",
+                "go",
+                "rs",
+            )
 
         fun getInstance(): TokenSlayerService = service()
     }
@@ -51,7 +58,10 @@ class TokenSlayerService {
      * Analyze a single VirtualFile. Returns a FileAnalysisResult or null if skipped.
      * This is the main entry point for per-file analysis.
      */
-    fun analyzeFile(virtualFile: VirtualFile, project: Project): FileAnalysisResult? {
+    fun analyzeFile(
+        virtualFile: VirtualFile,
+        project: Project,
+    ): FileAnalysisResult? {
         val filePath = virtualFile.path
         val ext = virtualFile.extension?.lowercase() ?: return null
 
@@ -62,12 +72,13 @@ class TokenSlayerService {
             return null
         }
 
-        val content = try {
-            String(virtualFile.contentsToByteArray(), Charsets.UTF_8)
-        } catch (e: Exception) {
-            log.warn("Cannot read file $filePath", e)
-            return null
-        }
+        val content =
+            try {
+                String(virtualFile.contentsToByteArray(), Charsets.UTF_8)
+            } catch (e: Exception) {
+                log.warn("Cannot read file $filePath", e)
+                return null
+            }
 
         // Secrets check
         val secretsScan = SecretsDetector.scan(filePath, content)
@@ -102,17 +113,19 @@ class TokenSlayerService {
         }
 
         // PSI extraction
-        val psiFile = ReadAction.compute<PsiFile?, Throwable> {
-            PsiManager.getInstance(project).findFile(virtualFile)
-        } ?: return null
+        val psiFile =
+            ReadAction.compute<PsiFile?, Throwable> {
+                PsiManager.getInstance(project).findFile(virtualFile)
+            } ?: return null
 
         val language = psiFile.language.id
-        val symbols = try {
-            extractor.extract(psiFile)
-        } catch (e: Exception) {
-            log.warn("Symbol extraction failed for $filePath", e)
-            return null
-        }
+        val symbols =
+            try {
+                extractor.extract(psiFile)
+            } catch (e: Exception) {
+                log.warn("Symbol extraction failed for $filePath", e)
+                return null
+            }
 
         // Apply language compactor
         val compactor = CompactorFactory.forLanguage(language)
@@ -126,14 +139,15 @@ class TokenSlayerService {
         val skeletonTokens = TokenEstimator.estimate(skeleton)
 
         // Store in cache
-        val entry = CacheEntry(
-            skeleton = skeleton,
-            originalTokens = originalTokens,
-            skeletonTokens = skeletonTokens,
-            contentHash = contentHash,
-            language = language,
-            filePath = filePath,
-        )
+        val entry =
+            CacheEntry(
+                skeleton = skeleton,
+                originalTokens = originalTokens,
+                skeletonTokens = skeletonTokens,
+                contentHash = contentHash,
+                language = language,
+                filePath = filePath,
+            )
         cache.put(entry)
         addToRecent(entry)
 
@@ -163,18 +177,19 @@ class TokenSlayerService {
         val totalSaved = entries.sumOf { it.tokensSaved }
         val totalOriginal = entries.sumOf { it.originalTokens }
 
-        val langBreakdown = entries
-            .groupBy { it.language }
-            .mapValues { (lang, es) ->
-                val saved = es.sumOf { it.tokensSaved }
-                val orig = es.sumOf { it.originalTokens }
-                LanguageStat(
-                    language = lang,
-                    files = es.size,
-                    tokensSaved = saved,
-                    reductionPct = if (orig > 0) ((saved.toDouble() / orig) * 100).toInt() else 0,
-                )
-            }
+        val langBreakdown =
+            entries
+                .groupBy { it.language }
+                .mapValues { (lang, es) ->
+                    val saved = es.sumOf { it.tokensSaved }
+                    val orig = es.sumOf { it.originalTokens }
+                    LanguageStat(
+                        language = lang,
+                        files = es.size,
+                        tokensSaved = saved,
+                        reductionPct = if (orig > 0) ((saved.toDouble() / orig) * 100).toInt() else 0,
+                    )
+                }
 
         val topSavers = entries.sortedByDescending { it.tokensSaved }.take(5)
 

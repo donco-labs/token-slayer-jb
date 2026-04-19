@@ -16,7 +16,6 @@ import java.security.MessageDigest
     storages = [Storage("tokenslayer-cache.xml", roamingType = RoamingType.DISABLED)],
 )
 class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
-
     private val log = logger<CacheManager>()
 
     data class SerializableEntry(
@@ -37,12 +36,13 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     private var state = CacheState()
 
     // In-memory LRU map (access-ordered LinkedHashMap)
-    private val lruMap: LinkedHashMap<String, CacheEntry> = object :
-        LinkedHashMap<String, CacheEntry>(state.maxSize, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean {
-            return size > state.maxSize
+    private val lruMap: LinkedHashMap<String, CacheEntry> =
+        object :
+            LinkedHashMap<String, CacheEntry>(state.maxSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean {
+                return size > state.maxSize
+            }
         }
-    }
 
     // ── Stats ────────────────────────────────────────────────────────────────
     var cacheHits: Int = 0
@@ -116,17 +116,19 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
 
     override fun getState(): CacheState {
         // Persist current in-memory LRU to state
-        val persistedEntries = lruMap.entries.associate { (k, v) ->
-            k to SerializableEntry(
-                skeleton = v.skeleton,
-                originalTokens = v.originalTokens,
-                skeletonTokens = v.skeletonTokens,
-                contentHash = v.contentHash,
-                language = v.language,
-                filePath = v.filePath,
-                timestamp = v.timestamp,
-            )
-        }
+        val persistedEntries =
+            lruMap.entries.associate { (k, v) ->
+                k to
+                    SerializableEntry(
+                        skeleton = v.skeleton,
+                        originalTokens = v.originalTokens,
+                        skeletonTokens = v.skeletonTokens,
+                        contentHash = v.contentHash,
+                        language = v.language,
+                        filePath = v.filePath,
+                        timestamp = v.timestamp,
+                    )
+            }
         return state.copy(entries = persistedEntries.toMutableMap())
     }
 
@@ -135,15 +137,16 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
         // Restore in-memory LRU from persisted state
         lruMap.clear()
         state.entries.forEach { (hash, se) ->
-            lruMap[hash] = CacheEntry(
-                skeleton = se.skeleton,
-                originalTokens = se.originalTokens,
-                skeletonTokens = se.skeletonTokens,
-                contentHash = se.contentHash,
-                language = se.language,
-                filePath = se.filePath,
-                timestamp = se.timestamp,
-            )
+            lruMap[hash] =
+                CacheEntry(
+                    skeleton = se.skeleton,
+                    originalTokens = se.originalTokens,
+                    skeletonTokens = se.skeletonTokens,
+                    contentHash = se.contentHash,
+                    language = se.language,
+                    filePath = se.filePath,
+                    timestamp = se.timestamp,
+                )
         }
         log.info("Restored ${lruMap.size} cached entries from disk")
     }
