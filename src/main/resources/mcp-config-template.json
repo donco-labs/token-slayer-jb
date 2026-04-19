@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "TokenSlayer": {
+      "type": "http",
+      "url": "http://localhost:${tokenslayer.mcp.port}/mcp",
+      "description": "TokenSlayer: AST-driven code skeleton provider for GitHub Copilot. Reduces token usage by 40-95%."
+    }
+  }
+}

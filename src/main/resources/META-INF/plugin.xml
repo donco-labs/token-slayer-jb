@@ -1,0 +1,136 @@
+<idea-plugin>
+    <id>com.tokenslayer.token-slayer-jb</id>
+    <name>TokenSlayer</name>
+    <vendor url="https://github.com/donco-labs/token-slayer-jb">TokenSlayer</vendor>
+
+    <description><![CDATA[
+        <h2>⚡ TokenSlayer — Semantic Structural Cache for GitHub Copilot</h2>
+        <p>Slash LLM token usage by <b>40–95%</b> with AST-driven code skeletons.</p>
+        <p>TokenSlayer eliminates the "orientation tax" AI coding assistants pay when reading raw files.
+        It generates compact structural skeletons (8 lines instead of 1,200) and exposes them to
+        GitHub Copilot via an embedded MCP server.</p>
+        <h3>Features</h3>
+        <ul>
+            <li>🔧 <b>GitHub Copilot MCP integration</b> — <code>tokenslayer_structural_summary</code> tool</li>
+            <li>📊 <b>Live dashboard</b> — real-time token savings analytics</li>
+            <li>⚡ <b>Inline inlay hints</b> — reducibility indicators per class/function</li>
+            <li>📂 <b>Project tree badges</b> — color-coded reduction indicators</li>
+            <li>🛡️ <b>Secrets detection</b> — auto-excludes files with credentials</li>
+            <li>👁️ <b>Skeleton preview</b> — side-by-side diff view</li>
+            <li>📋 <b>Export report</b> — Markdown savings report</li>
+            <li>🌐 <b>Languages</b>: Java, Kotlin, Python, JS/TS, Go, Rust</li>
+        </ul>
+        <p>Requires GitHub Copilot for JetBrains.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends optional="true" config-file="tokenslayer-kotlin.xml">org.jetbrains.kotlin</depends>
+    <depends optional="true" config-file="tokenslayer-python.xml">com.intellij.modules.python</depends>
+    <depends optional="true" config-file="tokenslayer-js.xml">JavaScript</depends>
+    <depends optional="true" config-file="tokenslayer-go.xml">org.jetbrains.plugins.go</depends>
+    <depends optional="true" config-file="tokenslayer-copilot.xml">com.github.copilot</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+
+        <!-- Application Services -->
+        <applicationService
+            serviceImplementation="com.tokenslayer.settings.TokenSlayerSettings"/>
+        <applicationService
+            serviceImplementation="com.tokenslayer.cache.CacheManager"/>
+        <applicationService
+            serviceImplementation="com.tokenslayer.services.TokenSlayerService"/>
+
+        <!-- Project Services -->
+        <projectService
+            serviceImplementation="com.tokenslayer.services.ProjectAnalyzerService"/>
+
+        <!-- Startup Activity -->
+        <postStartupActivity
+            implementation="com.tokenslayer.TokenSlayerPlugin"/>
+
+        <!-- Tool Window -->
+        <toolWindow
+            id="TokenSlayer"
+            anchor="right"
+            secondary="false"
+            icon="com.tokenslayer.ui.TokenSlayerIcons.ToolWindow"
+            factoryClass="com.tokenslayer.ui.dashboard.TokenSlayerToolWindow"/>
+
+        <!-- Inlay Hints -->
+        <codeInsight.inlayProvider
+            language="JAVA"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"/>
+        <codeInsight.inlayProvider
+            language="kotlin"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"/>
+
+        <!-- Project View Decorator -->
+        <projectViewNodeDecorator
+            implementation="com.tokenslayer.ui.decoration.FileNodeDecorator"/>
+
+        <!-- Settings -->
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.tokenslayer.settings.TokenSlayerConfigurable"
+            id="com.tokenslayer.settings"
+            displayName="TokenSlayer"/>
+
+        <!-- Notifications -->
+        <notificationGroup
+            id="TokenSlayer"
+            displayType="BALLOON"
+            toolWindowId="TokenSlayer"/>
+
+    </extensions>
+
+    <!-- Actions -->
+    <actions>
+        <group id="TokenSlayer.ActionGroup"
+               text="TokenSlayer"
+               description="TokenSlayer — token reduction tools"
+               popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+
+            <action id="TokenSlayer.AnalyzeWorkspace"
+                    class="com.tokenslayer.actions.AnalyzeWorkspaceAction"
+                    text="Analyze Workspace"
+                    description="Analyze all supported files in the workspace and build skeleton cache"
+                    icon="AllIcons.Actions.Refresh"/>
+
+            <action id="TokenSlayer.AnalyzeCurrentFile"
+                    class="com.tokenslayer.actions.AnalyzeCurrentFileAction"
+                    text="Analyze Current File"
+                    description="Analyze the currently open file and generate its skeleton"
+                    icon="AllIcons.Actions.Execute"/>
+
+            <action id="TokenSlayer.PreviewSkeleton"
+                    class="com.tokenslayer.actions.PreviewSkeletonAction"
+                    text="Preview Skeleton"
+                    description="Show side-by-side diff of original vs structural skeleton"
+                    icon="AllIcons.Actions.Show"/>
+
+            <action id="TokenSlayer.CopySummary"
+                    class="com.tokenslayer.actions.CopySummaryAction"
+                    text="Copy Skeleton Summary"
+                    description="Copy structural skeleton to clipboard for use in Copilot Chat"
+                    icon="AllIcons.Actions.Copy"/>
+
+            <separator/>
+
+            <action id="TokenSlayer.ExportReport"
+                    class="com.tokenslayer.actions.ExportReportAction"
+                    text="Export Savings Report"
+                    description="Generate a Markdown savings report for the workspace"
+                    icon="AllIcons.Actions.Download"/>
+
+            <action id="TokenSlayer.ClearCache"
+                    class="com.tokenslayer.actions.ClearCacheAction"
+                    text="Clear Cache"
+                    description="Clear all cached skeletons"
+                    icon="AllIcons.Actions.GC"/>
+        </group>
+    </actions>
+
+</idea-plugin>

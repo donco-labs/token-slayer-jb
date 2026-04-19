@@ -1,0 +1,85 @@
+# ── Gradle ────────────────────────────────────────────────────────────────────
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Gradle build cache (local only)
+.gradle-cache/
+
+# ── IntelliJ IDEA ─────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Plugin sandbox (populated by runIde)
+.intellijPlatform/
+.intellij-platform/
+.plugin-sandbox/
+
+# ── Kotlin / JVM ──────────────────────────────────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Secrets & Credentials ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+service-account*.json
+secrets.json
+secrets.yaml
+secrets.yml
+id_rsa
+id_ed25519
+.netrc
+.htpasswd
+
+# Plugin signing keys (never commit these)
+chain.crt
+private.pem
+
+# ── TokenSlayer runtime output ────────────────────────────────────────────────
+# Auto-written by the plugin at startup — contains the dynamic MCP server port
+.github/copilot-mcp.json
+
+# Exported savings reports (user-generated, not source)
+tokenslayer-report.md
+
+# ── Test & Coverage ───────────────────────────────────────────────────────────
+build/reports/
+build/test-results/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Node (if any tooling scripts are added) ───────────────────────────────────
+node_modules/
+
+# ── Temporary ─────────────────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.swp
+*~

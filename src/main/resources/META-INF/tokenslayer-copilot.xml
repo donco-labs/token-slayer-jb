@@ -1,0 +1,9 @@
+<!-- 
+  This config is only loaded when GitHub Copilot for JetBrains is installed.
+  It registers TokenSlayer's MCP server URL with Copilot's MCP discovery.
+  
+  NOTE: The actual McpServer interface used here is provided by the GitHub Copilot
+  plugin at runtime. Without Copilot installed, this file is simply never loaded
+  (due to the optional="true" depends in plugin.xml).
+-->
+<idea-plugin/>

@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: 🚀 Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
+      - name: Kotlin compile check
+        run: ./gradlew compileKotlin --no-daemon
+
+      - name: Security check
+        run: |
+          FOUND=0
+          EXCLUDE="--exclude=SecretsDetector.kt --exclude=SecretsDetectorTest.kt"
+          grep -rn $EXCLUDE -e "AKIA[0-9A-Z]\{16\}" src/ && FOUND=1 || true
+          grep -rn $EXCLUDE -e "BEGIN.*PRIVATE KEY" src/ && FOUND=1 || true
+          grep -rn $EXCLUDE -e "sk_live_" src/ && FOUND=1 || true
+          if [ "$FOUND" -eq 1 ]; then echo "❌ Secrets in source!"; exit 1; fi
+          echo "✅ Source is clean"
+
+      - name: Run tests
+        run: ./gradlew test --no-daemon
+
+      - name: Build plugin
+        run: ./gradlew buildPlugin --no-daemon
+
+      - name: Run Plugin Verifier
+        run: ./gradlew verifyPlugin --no-daemon
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          PLUGIN_ZIP=$(ls build/distributions/*.zip | head -1)
+          SIZE=$(du -h "$PLUGIN_ZIP" | cut -f1)
+          cat << 'NOTES' > release_notes.md
+          ## ⚡ TokenSlayer ${{ steps.version.outputs.VERSION }} for JetBrains
+
+          ### Installation
+          1. Download the `.zip` file below
+          2. In your JetBrains IDE: **Settings → Plugins → ⚙️ → Install Plugin from Disk…**
+          3. Select the downloaded `.zip` file
+          4. Restart the IDE
+
+          ### Requirements
+          - IntelliJ IDEA / PyCharm / WebStorm / GoLand 2024.1+
+          - GitHub Copilot for JetBrains (for MCP tool integration)
+
+          ### What's Included
+          - 🔧 GitHub Copilot MCP integration (`tokenslayer_structural_summary` tool)
+          - 🧠 PSI-based structural skeleton extraction (40–95% token reduction)
+          - 📊 Live dashboard with token savings analytics
+          - ⚡ Inline inlay hints per class/function
+          - 📂 Project tree reduction badges
+          - 🛡️ Automatic secrets detection & exclusion
+          - 👁️ Skeleton diff preview
+          - 📋 Markdown export report
+          - 🌐 Languages: Java, Kotlin, Python, JS/TS, Go, Rust
+          NOTES
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: 'build/distributions/*.zip'
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
