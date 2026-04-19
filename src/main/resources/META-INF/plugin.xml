@@ -84,6 +84,10 @@
 
     </extensions>
 
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" />
+    </extensions>
+
     <!-- Actions -->
     <actions>
         <group id="TokenSlayer.ActionGroup"
