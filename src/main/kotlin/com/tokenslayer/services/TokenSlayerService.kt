@@ -1,12 +1,10 @@
 package com.tokenslayer.services
 
-import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.service
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiFile
 import com.intellij.psi.PsiManager
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.compaction.CompactorFactory
@@ -114,7 +112,7 @@ class TokenSlayerService {
 
         // PSI extraction
         val psiFile =
-            ReadAction.compute<PsiFile?, Throwable> {
+            com.intellij.openapi.application.runReadAction {
                 PsiManager.getInstance(project).findFile(virtualFile)
             } ?: return null
 

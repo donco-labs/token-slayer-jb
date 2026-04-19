@@ -1,6 +1,5 @@
 package com.tokenslayer.extraction
 
-import com.intellij.openapi.application.ReadAction
 import com.intellij.psi.*
 import com.intellij.psi.util.PsiTreeUtil
 import com.tokenslayer.types.StructuralSymbol
@@ -17,7 +16,7 @@ class PsiSymbolExtractor {
      * Returns a list of top-level symbols with children nested inside.
      */
     fun extract(psiFile: PsiFile): List<StructuralSymbol> =
-        ReadAction.compute<List<StructuralSymbol>, Throwable> {
+        com.intellij.openapi.application.runReadAction {
             extractFromFile(psiFile)
         }
 

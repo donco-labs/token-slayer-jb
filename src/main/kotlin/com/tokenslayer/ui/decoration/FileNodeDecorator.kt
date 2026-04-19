@@ -2,8 +2,6 @@ package com.tokenslayer.ui.decoration
 
 import com.intellij.ide.projectView.ProjectViewNode
 import com.intellij.ide.projectView.ProjectViewNodeDecorator
-import com.intellij.packageDependencies.ui.PackageDependenciesNode
-import com.intellij.ui.ColoredTreeCellRenderer
 import com.intellij.ui.SimpleTextAttributes
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.services.TokenSlayerService
@@ -52,12 +50,5 @@ class FileNodeDecorator : ProjectViewNodeDecorator {
 
         data.addText("  $badge", SimpleTextAttributes(SimpleTextAttributes.STYLE_SMALLER, color))
         data.tooltip = "TokenSlayer: ${entry.reductionPct}% token reduction (${entry.originalTokens} → ${entry.skeletonTokens} tokens)"
-    }
-
-    override fun decorate(
-        node: PackageDependenciesNode,
-        cellRenderer: ColoredTreeCellRenderer,
-    ) {
-        // Not used
     }
 }

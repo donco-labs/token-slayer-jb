@@ -24,9 +24,9 @@ class TokenSlayerPlugin : ProjectActivity {
         writeMcpConfig(project, mcpServer.serverPort)
 
         // Register VFS listener to invalidate cache on file changes
-        @Suppress("DEPRECATION")
-        VirtualFileManager.getInstance().addVirtualFileListener(
-            TokenSlayerVfsListener(project),
+        VirtualFileManager.getInstance().addAsyncFileListener(
+            TokenSlayerAsyncFileListener(project),
+            project,
         )
 
         // Trigger workspace analysis in background
@@ -71,26 +71,38 @@ class TokenSlayerPlugin : ProjectActivity {
 /**
  * Listens for file changes and invalidates stale cache entries.
  */
-private class TokenSlayerVfsListener(private val project: Project) : VirtualFileListener {
+private class TokenSlayerAsyncFileListener(private val project: Project) : com.intellij.openapi.vfs.AsyncFileListener {
     private val cache get() = CacheManager.getInstance()
     private val analyzer get() = ProjectAnalyzerService.getInstance(project)
 
-    override fun contentsChanged(event: VirtualFileEvent) {
-        val file = event.file
-        if (file.extension?.lowercase() !in TokenSlayerService.SUPPORTED_EXTENSIONS) return
-        // Invalidate old entry and re-analyze
-        cache.invalidate(file.path)
-        analyzer.analyzeFile(file)
-    }
-
-    override fun fileDeleted(event: VirtualFileEvent) {
-        cache.invalidate(event.file.path)
-    }
-
-    override fun fileMoved(event: VirtualFileMoveEvent) {
-        val oldPath = "${event.oldParent.path}/${event.file.name}"
-        cache.invalidate(oldPath)
-        cache.invalidate(event.file.path)
-        analyzer.analyzeFile(event.file)
+    override fun prepareChange(
+        events: List<com.intellij.openapi.vfs.newvfs.events.VFileEvent>,
+    ): com.intellij.openapi.vfs.AsyncFileListener.ChangeApplier {
+        return object : com.intellij.openapi.vfs.AsyncFileListener.ChangeApplier {
+            override fun afterVfsChange() {
+                for (event in events) {
+                    val file = event.file ?: continue
+                    if (
+                        event is com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent ||
+                        event is com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+                    ) {
+                        cache.invalidate(event.path)
+                    }
+                    if (
+                        event is com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent ||
+                        event is com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent ||
+                        event is com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent
+                    ) {
+                        if (file.extension?.lowercase() in TokenSlayerService.SUPPORTED_EXTENSIONS) {
+                            if (event is com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent) {
+                                cache.invalidate(event.oldPath)
+                            }
+                            cache.invalidate(file.path)
+                            analyzer.analyzeFile(file)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
