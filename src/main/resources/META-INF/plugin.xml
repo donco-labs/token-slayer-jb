@@ -4,8 +4,8 @@
     <vendor url="https://github.com/donco-labs/token-slayer-jb">TokenSlayer</vendor>
 
     <description><![CDATA[
-        <h2>⚡ TokenSlayer — Semantic Structural Cache for GitHub Copilot</h2>
-        <p>Slash LLM token usage by <b>40–95%</b> with AST-driven code skeletons.</p>
+        <h2>TokenSlayer — Semantic Structural Cache for GitHub Copilot</h2>
+        <p>⚡ Slash LLM token usage by <b>40–95%</b> with AST-driven code skeletons.</p>
         <p>TokenSlayer eliminates the "orientation tax" AI coding assistants pay when reading raw files.
         It generates compact structural skeletons (8 lines instead of 1,200) and exposes them to
         GitHub Copilot via an embedded MCP server.</p>

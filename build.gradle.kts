@@ -52,7 +52,6 @@ intellijPlatform {
         id = "com.tokenslayer.token-slayer-jb"
         name = "TokenSlayer"
         version = providers.gradleProperty("pluginVersion").get()
-        description = providers.fileContents(layout.projectDirectory.file("README.md")).asText
         changeNotes =
             """
             <h2>0.1.0</h2>
