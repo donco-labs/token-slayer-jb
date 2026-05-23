@@ -214,18 +214,19 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     // ── Refresh ───────────────────────────────────────────────────────────────
 
     private fun startAutoRefresh() {
-        refreshTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
-            {
-                if (project.isDisposed) {
-                    refreshTask?.cancel(false)
-                    return@scheduleWithFixedDelay
-                }
-                SwingUtilities.invokeLater { refresh() }
-            },
-            5,
-            5,
-            TimeUnit.SECONDS,
-        )
+        refreshTask =
+            AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
+                {
+                    if (project.isDisposed) {
+                        refreshTask?.cancel(false)
+                        return@scheduleWithFixedDelay
+                    }
+                    SwingUtilities.invokeLater { refresh() }
+                },
+                5,
+                5,
+                TimeUnit.SECONDS,
+            )
     }
 
     private fun refresh() {

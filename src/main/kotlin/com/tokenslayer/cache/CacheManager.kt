@@ -55,44 +55,48 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     /**
      * Get a cached entry by content hash. Returns null on miss.
      */
-    fun get(contentHash: String): CacheEntry? = synchronized(lruMap) {
-        val entry = lruMap[contentHash]
-        if (entry != null) {
-            cacheHits++
-            log.debug("Cache HIT for hash $contentHash")
-            entry
-        } else {
-            cacheMisses++
-            log.debug("Cache MISS for hash $contentHash")
-            null
+    fun get(contentHash: String): CacheEntry? =
+        synchronized(lruMap) {
+            val entry = lruMap[contentHash]
+            if (entry != null) {
+                cacheHits++
+                log.debug("Cache HIT for hash $contentHash")
+                entry
+            } else {
+                cacheMisses++
+                log.debug("Cache MISS for hash $contentHash")
+                null
+            }
         }
-    }
 
     /**
      * Store a skeleton entry in the cache.
      */
-    fun put(entry: CacheEntry) = synchronized(lruMap) {
-        lruMap[entry.contentHash] = entry
-        log.debug("Cached skeleton for ${entry.filePath} (${entry.reductionPct}% reduction)")
-    }
+    fun put(entry: CacheEntry) =
+        synchronized(lruMap) {
+            lruMap[entry.contentHash] = entry
+            log.debug("Cached skeleton for ${entry.filePath} (${entry.reductionPct}% reduction)")
+        }
 
     /**
      * Invalidate the cache entry for the given file path.
      */
-    fun invalidate(filePath: String) = synchronized(lruMap) {
-        val removed = lruMap.entries.removeIf { it.value.filePath == filePath }
-        if (removed) log.debug("Invalidated cache for $filePath")
-    }
+    fun invalidate(filePath: String) =
+        synchronized(lruMap) {
+            val removed = lruMap.entries.removeIf { it.value.filePath == filePath }
+            if (removed) log.debug("Invalidated cache for $filePath")
+        }
 
     /**
      * Clear the entire cache.
      */
-    fun clear() = synchronized(lruMap) {
-        lruMap.clear()
-        cacheHits = 0
-        cacheMisses = 0
-        log.info("Cache cleared")
-    }
+    fun clear() =
+        synchronized(lruMap) {
+            lruMap.clear()
+            cacheHits = 0
+            cacheMisses = 0
+            log.info("Cache cleared")
+        }
 
     /** All current cache entries (for dashboard display). */
     fun allEntries(): List<CacheEntry> = synchronized(lruMap) { lruMap.values.toList() }
@@ -114,23 +118,24 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
 
     // ── PersistentStateComponent ─────────────────────────────────────────────
 
-    override fun getState(): CacheState = synchronized(lruMap) {
-        // Persist current in-memory LRU to state
-        val persistedEntries =
-            lruMap.entries.associate { (k, v) ->
-                k to
-                    SerializableEntry(
-                        skeleton = v.skeleton,
-                        originalTokens = v.originalTokens,
-                        skeletonTokens = v.skeletonTokens,
-                        contentHash = v.contentHash,
-                        language = v.language,
-                        filePath = v.filePath,
-                        timestamp = v.timestamp,
-                    )
-            }
-        state.copy(entries = persistedEntries.toMutableMap())
-    }
+    override fun getState(): CacheState =
+        synchronized(lruMap) {
+            // Persist current in-memory LRU to state
+            val persistedEntries =
+                lruMap.entries.associate { (k, v) ->
+                    k to
+                        SerializableEntry(
+                            skeleton = v.skeleton,
+                            originalTokens = v.originalTokens,
+                            skeletonTokens = v.skeletonTokens,
+                            contentHash = v.contentHash,
+                            language = v.language,
+                            filePath = v.filePath,
+                            timestamp = v.timestamp,
+                        )
+                }
+            state.copy(entries = persistedEntries.toMutableMap())
+        }
 
     override fun loadState(state: CacheState) {
         this.state = state
