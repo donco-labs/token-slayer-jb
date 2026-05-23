@@ -139,8 +139,8 @@ cd token-slayer-jb
 # 1. Run all CI checks + Plugin Verifier
 # 2. Build the plugin ZIP
 # 3. Create a GitHub Release with the ZIP attached
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 ## 📝 License

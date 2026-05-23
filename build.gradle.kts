@@ -53,6 +53,10 @@ intellijPlatform {
         version = providers.gradleProperty("pluginVersion").get()
         changeNotes =
             """
+            <h2>0.2.0</h2>
+            <ul>
+                <li>Bug fixes, code style corrections, and formatting improvements.</li>
+            </ul>
             <h2>0.1.0</h2>
             <ul>
                 <li>Initial release: AST-driven skeleton extraction for Java, Kotlin, Python, JS/TS, Go, Rust</li>

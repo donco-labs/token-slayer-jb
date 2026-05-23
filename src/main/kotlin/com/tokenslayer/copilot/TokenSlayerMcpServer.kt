@@ -149,7 +149,7 @@ class TokenSlayerMcpServer {
                 "serverInfo",
                 JsonObject().apply {
                     addProperty("name", SERVER_NAME)
-                    addProperty("version", "0.1.0")
+                    addProperty("version", "0.2.0")
                 },
             )
         }
