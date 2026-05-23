@@ -108,7 +108,7 @@ class PsiSymbolExtractor {
             cls.isAnnotationType -> sb.append("@interface ")
             else -> sb.append("class ")
         }
-        sb.append(cls.name)
+        sb.append(cls.name ?: "Anonymous")
         cls.typeParameters.takeIf { it.isNotEmpty() }?.let {
             sb.append("<${it.joinToString(", ") { tp -> tp.name ?: "?" }}>")
         }
@@ -225,11 +225,14 @@ class PsiSymbolExtractor {
             .trim()
 
     private fun getRange(element: PsiElement): IntRange {
+        if (!element.isValid) return 0..0
+        val containingFile = element.containingFile ?: return 0..0
         val doc =
             PsiDocumentManager.getInstance(element.project)
-                .getDocument(element.containingFile) ?: return 0..0
-        val startLine = doc.getLineNumber(element.textRange.startOffset)
-        val endLine = doc.getLineNumber(element.textRange.endOffset)
+                .getDocument(containingFile) ?: return 0..0
+        val range = element.textRange ?: return 0..0
+        val startLine = doc.getLineNumber(range.startOffset)
+        val endLine = doc.getLineNumber(range.endOffset)
         return startLine..endLine
     }
 }

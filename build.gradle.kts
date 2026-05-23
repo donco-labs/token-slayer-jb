@@ -1,5 +1,3 @@
-import org.jetbrains.intellij.platform.gradle.TestFrameworkType
-
 plugins {
     id("org.jetbrains.intellij.platform") version "2.14.0"
     kotlin("jvm") version "1.9.25"

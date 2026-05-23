@@ -17,7 +17,12 @@ class PreviewSkeletonAction : AnAction("Preview Skeleton"), DumbAware {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        val content = String(file.contentsToByteArray(), Charsets.UTF_8)
+        val content =
+            try {
+                String(file.contentsToByteArray(), Charsets.UTF_8)
+            } catch (e: Exception) {
+                return
+            }
 
         val tsService = TokenSlayerService.getInstance()
         val skeleton =
