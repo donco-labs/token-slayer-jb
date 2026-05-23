@@ -55,9 +55,9 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     /**
      * Get a cached entry by content hash. Returns null on miss.
      */
-    fun get(contentHash: String): CacheEntry? {
+    fun get(contentHash: String): CacheEntry? = synchronized(lruMap) {
         val entry = lruMap[contentHash]
-        return if (entry != null) {
+        if (entry != null) {
             cacheHits++
             log.debug("Cache HIT for hash $contentHash")
             entry
@@ -71,7 +71,7 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     /**
      * Store a skeleton entry in the cache.
      */
-    fun put(entry: CacheEntry) {
+    fun put(entry: CacheEntry) = synchronized(lruMap) {
         lruMap[entry.contentHash] = entry
         log.debug("Cached skeleton for ${entry.filePath} (${entry.reductionPct}% reduction)")
     }
@@ -79,7 +79,7 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     /**
      * Invalidate the cache entry for the given file path.
      */
-    fun invalidate(filePath: String) {
+    fun invalidate(filePath: String) = synchronized(lruMap) {
         val removed = lruMap.entries.removeIf { it.value.filePath == filePath }
         if (removed) log.debug("Invalidated cache for $filePath")
     }
@@ -87,7 +87,7 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     /**
      * Clear the entire cache.
      */
-    fun clear() {
+    fun clear() = synchronized(lruMap) {
         lruMap.clear()
         cacheHits = 0
         cacheMisses = 0
@@ -95,10 +95,10 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     }
 
     /** All current cache entries (for dashboard display). */
-    fun allEntries(): List<CacheEntry> = lruMap.values.toList()
+    fun allEntries(): List<CacheEntry> = synchronized(lruMap) { lruMap.values.toList() }
 
     /** Current cache size. */
-    val size: Int get() = lruMap.size
+    val size: Int get() = synchronized(lruMap) { lruMap.size }
 
     // ── Content Hashing ──────────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
 
     // ── PersistentStateComponent ─────────────────────────────────────────────
 
-    override fun getState(): CacheState {
+    override fun getState(): CacheState = synchronized(lruMap) {
         // Persist current in-memory LRU to state
         val persistedEntries =
             lruMap.entries.associate { (k, v) ->
@@ -129,25 +129,27 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
                         timestamp = v.timestamp,
                     )
             }
-        return state.copy(entries = persistedEntries.toMutableMap())
+        state.copy(entries = persistedEntries.toMutableMap())
     }
 
     override fun loadState(state: CacheState) {
         this.state = state
         // Restore in-memory LRU from persisted state
-        lruMap.clear()
-        state.entries.forEach { (hash, se) ->
-            lruMap[hash] =
-                CacheEntry(
-                    skeleton = se.skeleton,
-                    originalTokens = se.originalTokens,
-                    skeletonTokens = se.skeletonTokens,
-                    contentHash = se.contentHash,
-                    language = se.language,
-                    filePath = se.filePath,
-                    timestamp = se.timestamp,
-                )
+        synchronized(lruMap) {
+            lruMap.clear()
+            state.entries.forEach { (hash, se) ->
+                lruMap[hash] =
+                    CacheEntry(
+                        skeleton = se.skeleton,
+                        originalTokens = se.originalTokens,
+                        skeletonTokens = se.skeletonTokens,
+                        contentHash = se.contentHash,
+                        language = se.language,
+                        filePath = se.filePath,
+                        timestamp = se.timestamp,
+                    )
+            }
+            log.info("Restored ${lruMap.size} cached entries from disk")
         }
-        log.info("Restored ${lruMap.size} cached entries from disk")
     }
 }

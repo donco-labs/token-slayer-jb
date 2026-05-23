@@ -36,6 +36,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val topSaversPanel = JPanel()
     private val recentPanel = JPanel()
     private val secretsPanel = JPanel()
+    private var refreshTask: java.util.concurrent.ScheduledFuture<*>? = null
 
     init {
         background = JBColor(Color(0x1E1E2E), Color(0x1E1E2E))
@@ -213,8 +214,14 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     // ── Refresh ───────────────────────────────────────────────────────────────
 
     private fun startAutoRefresh() {
-        AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
-            { SwingUtilities.invokeLater { refresh() } },
+        refreshTask = AppExecutorUtil.getAppScheduledExecutorService().scheduleWithFixedDelay(
+            {
+                if (project.isDisposed) {
+                    refreshTask?.cancel(false)
+                    return@scheduleWithFixedDelay
+                }
+                SwingUtilities.invokeLater { refresh() }
+            },
             5,
             5,
             TimeUnit.SECONDS,

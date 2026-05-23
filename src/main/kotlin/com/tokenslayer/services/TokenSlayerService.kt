@@ -27,8 +27,8 @@ class TokenSlayerService {
     private val cache get() = CacheManager.getInstance()
     private val settings get() = TokenSlayerSettings.getInstance()
 
-    val excludedFiles = mutableListOf<ExcludedFile>()
-    val recentActivity = ArrayDeque<CacheEntry>(20)
+    val excludedFiles = java.util.concurrent.CopyOnWriteArrayList<ExcludedFile>()
+    val recentActivity = java.util.Collections.synchronizedList(mutableListOf<CacheEntry>())
 
     companion object {
         val SUPPORTED_EXTENSIONS =
@@ -208,9 +208,11 @@ class TokenSlayerService {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun addToRecent(entry: CacheEntry) {
-        recentActivity.removeIf { it.filePath == entry.filePath }
-        recentActivity.addFirst(entry)
-        if (recentActivity.size > 20) recentActivity.removeLast()
+        synchronized(recentActivity) {
+            recentActivity.removeIf { it.filePath == entry.filePath }
+            recentActivity.add(0, entry)
+            if (recentActivity.size > 20) recentActivity.removeAt(recentActivity.lastIndex)
+        }
     }
 
     private fun isIgnored(path: String): Boolean {

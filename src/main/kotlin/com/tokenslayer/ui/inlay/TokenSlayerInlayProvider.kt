@@ -44,6 +44,7 @@ private class TokenSlayerInlayCollector(
 ) : InlayHintsCollector {
     private val cache = CacheManager.getInstance()
     private val factory = PresentationFactory(editor)
+    private val virtualFile = file.virtualFile
 
     override fun collect(
         element: PsiElement,
@@ -51,11 +52,12 @@ private class TokenSlayerInlayCollector(
         sink: InlayHintsSink,
     ): Boolean {
         if (!isAnnotatableElement(element)) return true
+        if (!element.isValid) return true
 
         // Only annotate if file is cached (avoid triggering analysis from hint)
         val cachedEntry =
             cache.allEntries()
-                .firstOrNull { it.filePath == file.virtualFile?.path }
+                .firstOrNull { it.filePath == virtualFile?.path }
                 ?: return true
 
         val elementLines = calculateElementLines(element) ?: return true
@@ -67,9 +69,10 @@ private class TokenSlayerInlayCollector(
 
         val hintText = " ⚡ ~$elementLines → ~$skeletonLines lines  ($reductionPct% skeleton)"
         val presentation: InlayPresentation = factory.smallText(hintText)
+        val textRange = element.textRange ?: return true
 
         sink.addBlockElement(
-            offset = element.textRange.startOffset,
+            offset = textRange.startOffset,
             relatesToPrecedingText = false,
             showAbove = true,
             priority = 0,
@@ -85,8 +88,8 @@ private class TokenSlayerInlayCollector(
     private fun calculateElementLines(element: PsiElement): Int? {
         val doc =
             com.intellij.openapi.fileEditor.FileDocumentManager.getInstance()
-                .getDocument(file.virtualFile ?: return null) ?: return null
-        val range = element.textRange
+                .getDocument(virtualFile ?: return null) ?: return null
+        val range = element.textRange ?: return null
         val startLine = doc.getLineNumber(range.startOffset)
         val endLine = doc.getLineNumber(range.endOffset)
         return endLine - startLine + 1

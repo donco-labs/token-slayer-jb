@@ -67,9 +67,9 @@ class TokenSlayerConfigurable : Configurable {
     }
 
     override fun isModified(): Boolean {
-        return maxFileSizeSpinner.value as Int != settings.maxFileSizeKB ||
-            cacheMaxEntriesSpinner.value as Int != settings.cacheMaxEntries ||
-            verbosityCombo.selectedItem as String != settings.verbosity.label ||
+        return (maxFileSizeSpinner.value as? Int ?: settings.maxFileSizeKB) != settings.maxFileSizeKB ||
+            (cacheMaxEntriesSpinner.value as? Int ?: settings.cacheMaxEntries) != settings.cacheMaxEntries ||
+            (verbosityCombo.selectedItem as? String ?: settings.verbosity.label) != settings.verbosity.label ||
             ignoredPathsField.text != settings.ignoredPaths.joinToString(", ") ||
             enableInlayHintsBox.isSelected != settings.enableInlayHints ||
             enableFileDecorationsBox.isSelected != settings.enableFileDecorations ||
@@ -77,9 +77,9 @@ class TokenSlayerConfigurable : Configurable {
     }
 
     override fun apply() {
-        settings.maxFileSizeKB = maxFileSizeSpinner.value as Int
-        settings.cacheMaxEntries = cacheMaxEntriesSpinner.value as Int
-        settings.verbosity = Verbosity.from(verbosityCombo.selectedItem as String)
+        settings.maxFileSizeKB = maxFileSizeSpinner.value as? Int ?: return
+        settings.cacheMaxEntries = cacheMaxEntriesSpinner.value as? Int ?: return
+        settings.verbosity = Verbosity.from(verbosityCombo.selectedItem as? String ?: return)
         settings.ignoredPaths = ignoredPathsField.text.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         settings.enableInlayHints = enableInlayHintsBox.isSelected
         settings.enableFileDecorations = enableFileDecorationsBox.isSelected

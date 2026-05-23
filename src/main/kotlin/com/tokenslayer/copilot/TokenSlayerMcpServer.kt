@@ -53,9 +53,11 @@ class TokenSlayerMcpServer {
 
         fun getInstance(): TokenSlayerMcpServer {
             return instance ?: synchronized(this) {
-                instance ?: TokenSlayerMcpServer().also {
-                    instance = it
-                    it.start()
+                instance ?: run {
+                    val server = TokenSlayerMcpServer()
+                    server.start()
+                    instance = server
+                    server
                 }
             }
         }
