@@ -1,11 +1,25 @@
+import org.jetbrains.changelog.Changelog
+
 plugins {
     id("org.jetbrains.intellij.platform") version "2.14.0"
+    id("org.jetbrains.changelog") version "2.2.1"
     kotlin("jvm") version "1.9.25"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
 }
 
 group = "com.tokenslayer"
-version = providers.gradleProperty("pluginVersion").get()
+
+// Plugin version resolution:
+//   - In CI, the Release workflow derives PLUGIN_VERSION from the pushed git tag
+//     (e.g. tag "v0.3.0" -> "0.3.0") and exports it, so the tag is the single source of truth
+//     for the version stamped into plugin.xml and the built ZIP.
+//   - Locally (and in non-release CI), it falls back to `pluginVersion` in gradle.properties.
+val pluginVersion: String =
+    providers.environmentVariable("PLUGIN_VERSION")
+        .orElse(providers.gradleProperty("pluginVersion"))
+        .get()
+
+version = pluginVersion
 
 kotlin {
     jvmToolchain(17)
@@ -50,28 +64,30 @@ intellijPlatform {
     pluginConfiguration {
         id = "com.tokenslayer.token-slayer-jb"
         name = "TokenSlayer"
-        version = providers.gradleProperty("pluginVersion").get()
+        version = pluginVersion
+        // "What's New" is rendered from CHANGELOG.md: use the section matching the release
+        // version if present, otherwise fall back to the [Unreleased] section (e.g. pre-release
+        // builds). See the `changelog { }` block below.
         changeNotes =
-            """
-            <h2>0.2.0</h2>
-            <ul>
-                <li>Bug fixes, code style corrections, and formatting improvements.</li>
-            </ul>
-            <h2>0.1.0</h2>
-            <ul>
-                <li>Initial release: AST-driven skeleton extraction for Java, Kotlin, Python, JS/TS, Go, Rust</li>
-                <li>GitHub Copilot MCP server integration</li>
-                <li>Live dashboard tool window with token savings analytics</li>
-                <li>Inline inlay hints (⚡ N→M lines skeleton)</li>
-                <li>Secrets detection and exclusion</li>
-                <li>Skeleton preview (diff view)</li>
-                <li>Export savings report</li>
-            </ul>
-            """.trimIndent()
+            provider {
+                with(changelog) {
+                    renderItem(
+                        (getOrNull(pluginVersion) ?: getUnreleased())
+                            .withHeader(false)
+                            .withEmptySections(false),
+                        Changelog.OutputType.HTML,
+                    )
+                }
+            }
 
         ideaVersion {
             sinceBuild = providers.gradleProperty("pluginSinceBuild").get()
-            untilBuild = providers.gradleProperty("pluginUntilBuild").get()
+            // No upper bound: do NOT cap until-build. A hardcoded cap (e.g. 261.*) is exactly
+            // what makes the plugin "incompatible" the moment a newer IDE ships. The plugin uses
+            // stable platform APIs, and every language-specific extension is isolated in an
+            // optional module, so it degrades gracefully on future builds instead of being blocked.
+            // Forward compatibility is validated by the Plugin Verifier (./gradlew verifyPlugin).
+            untilBuild = provider { null }
         }
 
         vendor {
@@ -88,10 +104,11 @@ intellijPlatform {
 
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
-        channels =
-            providers.gradleProperty("pluginVersion").map {
-                listOf(it.substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
-            }
+        // Marketplace release channel derived from the version's pre-release suffix:
+        //   "0.3.0"        -> "default" (stable)
+        //   "0.3.0-beta.1" -> "beta"
+        //   "0.3.0-alpha.2"-> "alpha"
+        channels = listOf(pluginVersion.substringAfter('-', "").substringBefore('.').ifEmpty { "default" })
     }
 
     pluginVerification {
@@ -99,6 +116,12 @@ intellijPlatform {
             recommended()
         }
     }
+}
+
+changelog {
+    version.set(pluginVersion)
+    groups.set(listOf("Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"))
+    repositoryUrl.set("https://github.com/donco-labs/token-slayer-jb")
 }
 
 ktlint {

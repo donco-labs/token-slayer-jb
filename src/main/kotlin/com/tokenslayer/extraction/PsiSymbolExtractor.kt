@@ -11,20 +11,39 @@ import com.tokenslayer.types.SymbolKind
  * PSI gives richer typed information than LSP — we get full modifiers, generics, and annotations.
  */
 class PsiSymbolExtractor {
+    companion object {
+        /** Declaration kinds that own nested members and are therefore descended into. */
+        private val CONTAINER_KINDS =
+            setOf(
+                SymbolKind.CLASS,
+                SymbolKind.INTERFACE,
+                SymbolKind.ENUM,
+                SymbolKind.STRUCT,
+                SymbolKind.TRAIT,
+                SymbolKind.IMPL,
+                SymbolKind.OBJECT,
+                SymbolKind.MODULE,
+                SymbolKind.NAMESPACE,
+            )
+    }
+
     /**
      * Extract top-level structural symbols from a PSI file.
      * Returns a list of top-level symbols with children nested inside.
      */
     fun extract(psiFile: PsiFile): List<StructuralSymbol> =
-        com.intellij.openapi.application.runReadAction {
+        com.intellij.openapi.application.ReadAction.compute<List<StructuralSymbol>, RuntimeException> {
             extractFromFile(psiFile)
         }
 
     private fun extractFromFile(psiFile: PsiFile): List<StructuralSymbol> {
-        val language = psiFile.language.id.lowercase()
-        return when {
-            language.contains("java") -> extractJava(psiFile)
-            language.contains("kotlin") -> extractKotlin(psiFile)
+        // Match the language id EXACTLY. A substring check (contains "java") is wrong:
+        // JavaScript's language id is "JavaScript", so it would be routed to the Java PSI
+        // extractor — which finds no PsiClass and returns an empty skeleton. That is why
+        // JS/TS produced no savings. Only real Java uses the dedicated Java path; everything
+        // else (Kotlin, Python, JS/TS, Go, Rust, …) uses the generic recursive traversal.
+        return when (psiFile.language.id.lowercase()) {
+            "java" -> extractJava(psiFile)
             else -> extractGeneric(psiFile)
         }
     }
@@ -112,8 +131,10 @@ class PsiSymbolExtractor {
         cls.typeParameters.takeIf { it.isNotEmpty() }?.let {
             sb.append("<${it.joinToString(", ") { tp -> tp.name ?: "?" }}>")
         }
-        // Safe: extract names via reference resolution to avoid PsiType API version issues
-        cls.superClassType?.resolve()?.name?.let { sb.append(" extends $it") }
+        // Use the stable PSI type API (extendsListTypes / implementsListTypes) rather than
+        // the experimental JVM API (superClassType → JvmReferenceType). extendsListTypes also
+        // omits the implicit java.lang.Object superclass, so we don't emit "extends Object".
+        cls.extendsListTypes.firstOrNull()?.resolve()?.name?.let { sb.append(" extends $it") }
         val interfaces = cls.implementsListTypes.mapNotNull { it.resolve()?.name }
         if (interfaces.isNotEmpty()) sb.append(" implements ${interfaces.joinToString(", ")}")
         return sb.toString().trimEnd()
@@ -145,50 +166,62 @@ class PsiSymbolExtractor {
         return sb.toString().trimEnd()
     }
 
-    // ── Kotlin Extraction ────────────────────────────────────────────────────
+    // ── Generic Extraction (Kotlin, Python, JS/TS, Go, Rust, …) ──────────────
+    // Kotlin (KtClass / KtNamedFunction / KtProperty), Python, JS/TS, Go and Rust are all
+    // handled here: their declarations are PsiNamedElement and are classified structurally
+    // by node-type name, so no per-language compile dependency is required.
 
-    private fun extractKotlin(file: PsiFile): List<StructuralSymbol> {
-        // Use generic PSI children traversal for Kotlin —
-        // KtClass etc. are in the Kotlin plugin, accessed by class name via reflection fallback
-        return extractGeneric(file)
-    }
+    private fun extractGeneric(file: PsiFile): List<StructuralSymbol> = collectStructural(file)
 
-    // ── Generic Extraction (fallback) ────────────────────────────────────────
-
-    private fun extractGeneric(file: PsiFile): List<StructuralSymbol> {
+    /**
+     * Recursively collect structural declarations (classes, functions, methods,
+     * fields, …) beneath [parent].
+     *
+     * The previous implementation only looked at a declaration's *direct* PSI
+     * children, so members nested inside a class body — which in most languages
+     * (Python, JS/TS, Kotlin, Go) live one or more levels down inside a statement
+     * list / block / body node — were never found. That produced empty skeletons
+     * and therefore no token savings for every non-Java language.
+     *
+     * This version transparently descends through container nodes that are not
+     * themselves declarations (statement lists, blocks, `export`/`var` wrappers,
+     * type-declaration wrappers) until it reaches the actual declarations, and it
+     * collects the members of type-like declarations (classes, structs, traits, …).
+     * It deliberately does NOT descend into function/method bodies — we only want
+     * signatures, not local variables and closures.
+     */
+    private fun collectStructural(parent: PsiElement): List<StructuralSymbol> {
         val result = mutableListOf<StructuralSymbol>()
-        // Walk children looking for named elements (covers Kotlin, Python, JS, Go via PSI)
-        file.children.forEach { child ->
-            extractGenericElement(child)?.let { result.add(it) }
+        for (child in parent.children) {
+            if (child is PsiWhiteSpace || child is PsiComment) continue
+            val symbol = buildStructural(child)
+            if (symbol != null) {
+                result.add(symbol)
+            } else {
+                // Not a declaration itself — descend through the container to find members.
+                result.addAll(collectStructural(child))
+            }
         }
         return result
     }
 
-    private fun extractGenericElement(element: PsiElement): StructuralSymbol? {
-        if (element is PsiWhiteSpace || element is PsiComment) return null
-
+    private fun buildStructural(element: PsiElement): StructuralSymbol? {
         val named = element as? PsiNamedElement ?: return null
         val name = named.name?.takeIf { it.isNotBlank() } ?: return null
-
         val kind = inferKind(element)
-        val range = getRange(element)
-        val signature = extractSignatureLine(element)
+        if (kind == SymbolKind.UNKNOWN) return null
 
-        val children =
-            element.children.mapNotNull { child ->
-                if (child is PsiNamedElement && child.name?.isNotBlank() == true) {
-                    extractGenericElement(child)
-                } else {
-                    null
-                }
-            }
+        // Only type-like declarations own nested members. Functions/methods/fields are
+        // leaves — we never walk into a function body (avoids local vars) or a field
+        // initializer (avoids anonymous objects/lambdas leaking into the skeleton).
+        val children = if (kind in CONTAINER_KINDS) collectStructural(element) else emptyList()
 
         return StructuralSymbol(
             name = name,
             kind = kind,
             kindLabel = kind.name.lowercase(),
-            signatureLine = signature,
-            lineRange = range,
+            signatureLine = extractSignatureLine(element),
+            lineRange = getRange(element),
             children = children,
         )
     }

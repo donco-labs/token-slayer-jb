@@ -1,2 +1,14 @@
-<!-- Python language support -->
-<idea-plugin/>
+<!-- Python language support. Loaded only when the Python module is present (PyCharm, IDEA+Python plugin). -->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <codeInsight.declarativeInlayProvider
+            language="Python"
+            providerId="tokenslayer.hints"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"
+            isEnabledByDefault="true"
+            group="OTHER_GROUP"
+            bundle="messages.TokenSlayerBundle"
+            nameKey="inlay.tokenslayer.name"
+            descriptionKey="inlay.tokenslayer.description"/>
+    </extensions>
+</idea-plugin>

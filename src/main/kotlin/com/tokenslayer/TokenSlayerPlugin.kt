@@ -19,9 +19,18 @@ class TokenSlayerPlugin : ProjectActivity {
     override suspend fun execute(project: Project) {
         log.info("TokenSlayer: Starting up for project '${project.name}'")
 
-        // Start the embedded MCP server and write copilot MCP config
-        val mcpServer = com.tokenslayer.copilot.TokenSlayerMcpServer.getInstance()
-        writeMcpConfig(project, mcpServer.serverPort)
+        // Start the embedded MCP server. We deliberately do NOT write any file into the
+        // user's project (the old code wrote .github/copilot-mcp.json). That is the VS Code
+        // discovery convention — GitHub Copilot for JetBrains does not read it — and writing
+        // into a version-controlled directory is intrusive and can be committed by accident.
+        // JetBrains guidance is to keep plugin state in the IDE, not the project. The server
+        // URL is exposed in Settings → Tools → TokenSlayer for manual registration instead.
+        try {
+            val mcpServer = com.tokenslayer.copilot.TokenSlayerMcpServer.getInstance()
+            log.info("TokenSlayer: MCP server available at ${mcpServer.getServerUrl()}")
+        } catch (e: Exception) {
+            log.warn("TokenSlayer: MCP server unavailable", e)
+        }
 
         // Register VFS listener to invalidate cache on file changes
         VirtualFileManager.getInstance().addAsyncFileListener(
@@ -32,38 +41,6 @@ class TokenSlayerPlugin : ProjectActivity {
         // Trigger workspace analysis in background
         ProjectAnalyzerService.getInstance(project).analyzeAll { count ->
             log.info("TokenSlayer: Initial scan complete — $count files analyzed")
-        }
-    }
-
-    /**
-     * Write .github/copilot-mcp.json so GitHub Copilot auto-discovers our MCP server.
-     * This follows the official MCP server discovery mechanism for GitHub Copilot.
-     */
-    private fun writeMcpConfig(
-        project: Project,
-        port: Int,
-    ) {
-        val basePath = project.basePath ?: return
-        try {
-            val mcpDir = java.io.File(basePath, ".github")
-            mcpDir.mkdirs()
-            val mcpFile = java.io.File(mcpDir, "copilot-mcp.json")
-            mcpFile.writeText(
-                """
-                {
-                  "servers": {
-                    "TokenSlayer": {
-                      "type": "http",
-                      "url": "http://localhost:$port/mcp",
-                      "description": "TokenSlayer: AST skeleton provider. Reduces AI token usage by 40-95%."
-                    }
-                  }
-                }
-                """.trimIndent(),
-            )
-            log.info("TokenSlayer: Wrote MCP config to ${mcpFile.path}")
-        } catch (e: Exception) {
-            log.warn("TokenSlayer: Could not write MCP config", e)
         }
     }
 }

@@ -1,2 +1,14 @@
-<!-- Go language support -->
-<idea-plugin/>
+<!-- Go language support. Loaded only when the Go plugin is present (GoLand, IDEA+Go plugin). -->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <codeInsight.declarativeInlayProvider
+            language="go"
+            providerId="tokenslayer.hints"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"
+            isEnabledByDefault="true"
+            group="OTHER_GROUP"
+            bundle="messages.TokenSlayerBundle"
+            nameKey="inlay.tokenslayer.name"
+            descriptionKey="inlay.tokenslayer.description"/>
+    </extensions>
+</idea-plugin>

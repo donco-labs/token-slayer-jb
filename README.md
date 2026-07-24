@@ -19,7 +19,9 @@ With TokenSlayer:     8-line structural skeleton → 200 tokens consumed (96% re
 
 ## 🔧 GitHub Copilot Integration
 
-TokenSlayer registers an embedded **MCP server** via the `com.github.copilot` extension point. Copilot can invoke the `tokenslayer_structural_summary` tool autonomously — the JetBrains equivalent of VS Code's `#tokenslayer-structural-summary`.
+TokenSlayer runs an embedded **MCP server** on a stable local port and exposes the
+`tokenslayer_structural_summary` tool. Once registered, Copilot can invoke it autonomously —
+the JetBrains equivalent of VS Code's `#tokenslayer-structural-summary`.
 
 ```
 User:  How is authentication structured in this codebase?
@@ -27,6 +29,19 @@ Copilot → calls tokenslayer_structural_summary
        → receives compact skeleton
        → answers using 200 tokens instead of 5,000
 ```
+
+**Registering the server** (one-time): GitHub Copilot for JetBrains discovers MCP servers from
+its global config at `~/.config/github-copilot/intellij/mcp.json` — it does **not** read a
+per-project file. To register TokenSlayer:
+
+1. Open **Settings → Tools → TokenSlayer → GitHub Copilot (MCP)**.
+2. Click **Copy Copilot mcp.json snippet** (or copy it from the shown Server URL).
+3. Paste it into `~/.config/github-copilot/intellij/mcp.json` (merge with any existing `servers`).
+4. Reload MCP servers in Copilot.
+
+The server port is configurable and stable across restarts, so the registration keeps working.
+Prefer not to wire up Copilot? The **Copy Skeleton Summary** action pastes a skeleton straight
+into Copilot Chat.
 
 ## 📊 Features
 
@@ -134,14 +149,30 @@ cd token-slayer-jb
 
 ### Release
 
+Releases are **tag-driven**: the version stamped into `plugin.xml` and the ZIP comes from the
+pushed git tag (`v0.3.0` → `0.3.0`), not from `gradle.properties`. The "What's New" notes are
+rendered from [`CHANGELOG.md`](CHANGELOG.md).
+
+Recommended flow to cut version `X.Y.Z`:
+
 ```bash
-# Tag a release — GitHub Actions will automatically:
-# 1. Run all CI checks + Plugin Verifier
-# 2. Build the plugin ZIP
-# 3. Create a GitHub Release with the ZIP attached
-git tag v0.2.0
-git push origin v0.2.0
+# 1. Move the [Unreleased] notes into a new [X.Y.Z] section (and open a fresh [Unreleased]).
+#    Either edit CHANGELOG.md by hand, or let the changelog plugin do it:
+./gradlew patchChangelog -PpluginVersion=X.Y.Z
+
+# 2. Keep gradle.properties' pluginVersion in sync for local builds, then commit.
+#    (Set pluginVersion=X.Y.Z in gradle.properties.)
+git add CHANGELOG.md gradle.properties
+git commit -m "Release X.Y.Z"
+
+# 3. Tag and push — GitHub Actions then validates the tag, runs CI + Plugin Verifier,
+#    builds the versioned ZIP, and creates a GitHub Release with it attached.
+git tag vX.Y.Z
+git push origin main --tags
 ```
+
+If you tag without a matching `[X.Y.Z]` section, the release notes fall back to the
+`[Unreleased]` section. Pre-release suffixes work too (`vX.Y.Z-beta.1` → the `beta` channel).
 
 ## 📝 License
 
