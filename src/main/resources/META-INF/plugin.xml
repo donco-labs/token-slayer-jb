@@ -42,12 +42,18 @@
         <!-- Application Services -->
         <applicationService
             serviceImplementation="com.tokenslayer.settings.TokenSlayerSettings"/>
-        <applicationService
-            serviceImplementation="com.tokenslayer.cache.CacheManager"/>
-        <applicationService
-            serviceImplementation="com.tokenslayer.services.TokenSlayerService"/>
 
-        <!-- Project Services -->
+        <!--
+          Project Services. The skeleton cache and the analysis orchestrator are per-project:
+          as application services they shared one cache across every open workspace, so each
+          dashboard summed all of them and identical files in different projects collided on
+          their content-hash key. Only TokenSlayerSettings stays application-level, since those
+          are genuinely global user preferences.
+        -->
+        <projectService
+            serviceImplementation="com.tokenslayer.cache.CacheManager"/>
+        <projectService
+            serviceImplementation="com.tokenslayer.services.TokenSlayerService"/>
         <projectService
             serviceImplementation="com.tokenslayer.services.ProjectAnalyzerService"/>
 

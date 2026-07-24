@@ -38,7 +38,7 @@ private class TokenSlayerInlayCollector(
     file: PsiFile,
     private val editor: Editor,
 ) : SharedBypassCollector {
-    private val cache = CacheManager.getInstance()
+    private val cache = CacheManager.getInstance(file.project)
     private val virtualFile = file.virtualFile
 
     override fun collectFromElement(

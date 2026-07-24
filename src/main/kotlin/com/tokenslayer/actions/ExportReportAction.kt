@@ -27,7 +27,7 @@ class ExportReportAction : AnAction("Export Savings Report"), DumbAware {
 
     companion object {
         fun doExport(project: Project) {
-            val tsService = TokenSlayerService.getInstance()
+            val tsService = TokenSlayerService.getInstance(project)
             val stats = tsService.computeStats()
             val report = buildReport(stats, project.name)
 

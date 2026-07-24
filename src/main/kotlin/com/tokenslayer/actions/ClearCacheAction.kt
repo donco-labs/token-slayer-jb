@@ -11,7 +11,7 @@ import com.tokenslayer.cache.CacheManager
 class ClearCacheAction : AnAction("Clear Cache"), DumbAware {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val cache = CacheManager.getInstance()
+        val cache = CacheManager.getInstance(project)
         val count = cache.size
         cache.clear()
         NotificationGroupManager.getInstance()

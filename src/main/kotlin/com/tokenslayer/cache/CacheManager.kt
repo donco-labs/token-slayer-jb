@@ -1,7 +1,10 @@
 package com.tokenslayer.cache
 
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.*
 import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.project.Project
+import com.tokenslayer.settings.TokenSlayerSettings
 import com.tokenslayer.types.CacheEntry
 import java.security.MessageDigest
 
@@ -9,11 +12,20 @@ import java.security.MessageDigest
  * LRU cache for structural skeletons.
  * Persisted across IDE sessions via PersistentStateComponent.
  * Direct equivalent of VS Code's cacheManager.ts.
+ *
+ * PROJECT-scoped on purpose. This was previously an application service, which meant every
+ * open workspace shared one cache: the dashboard summed stats across all of them, and because
+ * entries are keyed by content hash alone, two projects containing an identical file shared a
+ * single entry whose `filePath` pointed into whichever project analysed it first — so the other
+ * project silently lost its tree badge and skeleton lookups. One cache per project fixes both.
+ *
+ * Stored in CACHE_FILE (outside the project directory, never shared or roamed) since this is
+ * regenerable derived data, not user configuration.
  */
-@Service(Service.Level.APP)
+@Service(Service.Level.PROJECT)
 @State(
     name = "TokenSlayerCache",
-    storages = [Storage("tokenslayer-cache.xml", roamingType = RoamingType.DISABLED)],
+    storages = [Storage(StoragePathMacros.CACHE_FILE)],
 )
 class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     private val log = logger<CacheManager>()
@@ -30,17 +42,34 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
 
     data class CacheState(
         var entries: MutableMap<String, SerializableEntry> = mutableMapOf(),
-        var maxSize: Int = 500,
+        @Deprecated("Superseded by TokenSlayerSettings.cacheMaxEntries; retained for state compatibility.")
+        var maxSize: Int = DEFAULT_MAX_ENTRIES,
     )
 
     private var state = CacheState()
 
+    /**
+     * Effective LRU capacity. Reads [TokenSlayerSettings.cacheMaxEntries] on each eviction check
+     * so a change in Settings takes effect immediately. Previously the cap was hard-coded to the
+     * `CacheState.maxSize` field, which meant the Settings spinner was silently inert. Now scoped
+     * per project (see the class note), so this is a per-workspace budget.
+     *
+     * Falls back to [DEFAULT_MAX_ENTRIES] when no Application is available — the case in pure-JVM
+     * unit tests, and in the narrow windows before startup completes or after shutdown begins.
+     */
+    private val maxEntries: Int
+        get() {
+            val app = ApplicationManager.getApplication() ?: return DEFAULT_MAX_ENTRIES
+            if (app.isDisposed) return DEFAULT_MAX_ENTRIES
+            return TokenSlayerSettings.getInstance().cacheMaxEntries
+        }
+
     // In-memory LRU map (access-ordered LinkedHashMap)
     private val lruMap: LinkedHashMap<String, CacheEntry> =
         object :
-            LinkedHashMap<String, CacheEntry>(state.maxSize, 0.75f, true) {
+            LinkedHashMap<String, CacheEntry>(DEFAULT_MAX_ENTRIES, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean {
-                return size > state.maxSize
+                return size > maxEntries
             }
         }
 
@@ -107,13 +136,16 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     // ── Content Hashing ──────────────────────────────────────────────────────
 
     companion object {
+        /** Initial map sizing and the fallback cap; the live cap comes from Settings. */
+        const val DEFAULT_MAX_ENTRIES = 500
+
         fun contentHash(content: String): String {
             val digest = MessageDigest.getInstance("MD5")
             val bytes = digest.digest(content.toByteArray(Charsets.UTF_8))
             return bytes.joinToString("") { "%02x".format(it) }
         }
 
-        fun getInstance(): CacheManager = service()
+        fun getInstance(project: Project): CacheManager = project.service()
     }
 
     // ── PersistentStateComponent ─────────────────────────────────────────────

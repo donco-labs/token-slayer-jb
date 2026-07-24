@@ -5,7 +5,11 @@ import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.project.Project
 import com.intellij.openapi.project.ProjectManager
+import com.intellij.openapi.roots.ProjectFileIndex
+import com.intellij.openapi.util.Computable
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import com.tokenslayer.services.TokenSlayerService
@@ -236,6 +240,47 @@ class TokenSlayerMcpServer {
 
     // ── Tool Execution ────────────────────────────────────────────────────────
 
+    /**
+     * Which open project owns [path]? Prefers a real content-root match, falling back to a
+     * base-path prefix so files not yet in the VFS (or projects still loading their roots)
+     * still resolve. For nested projects the deepest base path wins.
+     */
+    private fun findProjectContaining(
+        projects: List<Project>,
+        path: String,
+    ): Project? {
+        val vFile = LocalFileSystem.getInstance().findFileByPath(path)
+        if (vFile != null) {
+            val owner =
+                ApplicationManager.getApplication().runReadAction(
+                    Computable {
+                        projects.firstOrNull { p ->
+                            !p.isDisposed && ProjectFileIndex.getInstance(p).isInContent(vFile)
+                        }
+                    },
+                )
+            if (owner != null) return owner
+        }
+
+        val normalized = path.replace('\\', '/')
+        return projects
+            .filter { !it.isDisposed && it.basePath != null }
+            .filter { normalized.startsWith(it.basePath!!.replace('\\', '/').trimEnd('/') + "/") }
+            .maxByOrNull { it.basePath!!.length }
+    }
+
+    /** The project owning the focused editor, used to disambiguate a path-less call. */
+    private fun projectWithActiveEditor(projects: List<Project>): Project? {
+        var found: Project? = null
+        ApplicationManager.getApplication().invokeAndWait {
+            found =
+                projects.firstOrNull { p ->
+                    !p.isDisposed && FileEditorManager.getInstance(p).selectedFiles.isNotEmpty()
+                }
+        }
+        return found
+    }
+
     private fun executeTool(
         toolName: String,
         args: JsonObject,
@@ -249,12 +294,32 @@ class TokenSlayerMcpServer {
         val verbosityOverride =
             args.get("verbosity")?.asString?.takeIf { it.isNotBlank() }?.let { Verbosity.from(it) }
 
+        val openProjects = ProjectManager.getInstance().openProjects.filterNot { it.isDisposed }
+        if (openProjects.isEmpty()) return buildToolError("No open project found")
+
+        val requestedPath = args.get("filePath")?.asString?.takeIf { it.isNotBlank() }
+
+        // Resolve which workspace this call refers to. When a path is given, pick the project
+        // that actually contains it — the server is a single application-level endpoint, so
+        // taking openProjects.first() served skeletons (and cache state) from an arbitrary
+        // workspace whenever the user had more than one window open.
         val project =
-            ProjectManager.getInstance().openProjects.firstOrNull()
-                ?: return buildToolError("No open project found")
+            when {
+                requestedPath != null ->
+                    findProjectContaining(openProjects, requestedPath)
+                        ?: return buildToolError("File is not part of any open project: $requestedPath")
+                openProjects.size == 1 -> openProjects.single()
+                else ->
+                    // No path and several candidates: fall back to whichever project owns the
+                    // focused editor rather than guessing.
+                    projectWithActiveEditor(openProjects)
+                        ?: return buildToolError(
+                            "Multiple projects are open — pass an absolute filePath to disambiguate.",
+                        )
+            }
 
         val filePath =
-            args.get("filePath")?.asString?.takeIf { it.isNotBlank() }
+            requestedPath
                 ?: run {
                     // Use active editor file
                     var active: String? = null
@@ -267,9 +332,11 @@ class TokenSlayerMcpServer {
                 }
                 ?: return buildToolError("No file specified and no active editor file")
 
+        val tsService = TokenSlayerService.getInstance(project)
+
         // Fast path: at the default verbosity, serve an already-cached skeleton if present.
         if (verbosityOverride == null) {
-            val cachedSkeleton = TokenSlayerService.getInstance().getCachedSkeleton(filePath)
+            val cachedSkeleton = tsService.getCachedSkeleton(filePath)
             if (cachedSkeleton != null) {
                 return buildToolSuccess(cachedSkeleton, filePath, fromCache = true)
             }
@@ -281,7 +348,7 @@ class TokenSlayerMcpServer {
                 ?: return buildToolError("File not found: $filePath")
 
         val result =
-            TokenSlayerService.getInstance().analyzeFile(vFile, project, verbosityOverride)
+            tsService.analyzeFile(vFile, verbosityOverride)
                 ?: return buildToolError("Could not analyze file: $filePath (unsupported type or read error)")
 
         if (result.secretsScan.hasSecrets) {
