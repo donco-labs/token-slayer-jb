@@ -23,8 +23,14 @@
         <p>Requires GitHub Copilot for JetBrains.</p>
     ]]></description>
 
+    <!--
+      Core plugin depends ONLY on the platform so it loads in every JetBrains IDE
+      (IntelliJ IDEA, PyCharm, WebStorm, GoLand, Rider, …). All language-specific
+      code is isolated in optional modules that load only when that language's
+      plugin/module is present. This is what lets TokenSlayer run on PyCharm etc.
+    -->
     <depends>com.intellij.modules.platform</depends>
-    <depends>com.intellij.modules.java</depends>
+    <depends optional="true" config-file="tokenslayer-java.xml">com.intellij.modules.java</depends>
     <depends optional="true" config-file="tokenslayer-kotlin.xml">org.jetbrains.kotlin</depends>
     <depends optional="true" config-file="tokenslayer-python.xml">com.intellij.modules.python</depends>
     <depends optional="true" config-file="tokenslayer-js.xml">JavaScript</depends>
@@ -57,13 +63,11 @@
             icon="com.tokenslayer.ui.TokenSlayerIcons.ToolWindow"
             factoryClass="com.tokenslayer.ui.dashboard.TokenSlayerToolWindow"/>
 
-        <!-- Inlay Hints -->
-        <codeInsight.inlayProvider
-            language="JAVA"
-            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"/>
-        <codeInsight.inlayProvider
-            language="kotlin"
-            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"/>
+        <!--
+          Inlay hints are registered per-language inside the optional module
+          config files (tokenslayer-java.xml, tokenslayer-kotlin.xml, …) so the
+          hint provider is only wired up in IDEs that actually have that language.
+        -->
 
         <!-- Project View Decorator -->
         <projectViewNodeDecorator
@@ -84,9 +88,12 @@
 
     </extensions>
 
-    <extensions defaultExtensionNs="org.jetbrains.kotlin">
-        <supportsKotlinPluginMode supportsK2="true" />
-    </extensions>
+    <!--
+      NOTE: the org.jetbrains.kotlin "supportsKotlinPluginMode" extension lives in the
+      optional tokenslayer-kotlin.xml. It must NOT be declared here in the core file,
+      because its extension point only exists when the Kotlin plugin is installed —
+      declaring it here would break plugin loading in IDEs without Kotlin (e.g. PyCharm).
+    -->
 
     <!-- Actions -->
     <actions>

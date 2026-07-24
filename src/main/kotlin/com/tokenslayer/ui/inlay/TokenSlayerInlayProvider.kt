@@ -1,104 +1,117 @@
 package com.tokenslayer.ui.inlay
 
-import com.intellij.codeInsight.hints.*
-import com.intellij.codeInsight.hints.presentation.InlayPresentation
-import com.intellij.codeInsight.hints.presentation.PresentationFactory
+import com.intellij.codeInsight.hints.declarative.EndOfLinePosition
+import com.intellij.codeInsight.hints.declarative.InlayHintsCollector
+import com.intellij.codeInsight.hints.declarative.InlayHintsProvider
+import com.intellij.codeInsight.hints.declarative.InlayTreeSink
+import com.intellij.codeInsight.hints.declarative.SharedBypassCollector
 import com.intellij.openapi.editor.Editor
-import com.intellij.psi.*
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiFile
+import com.intellij.psi.PsiNamedElement
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.settings.TokenSlayerSettings
-import javax.swing.JPanel
 
 /**
- * Inline inlay hints: places ⚡ ~N lines → ~M lines skeleton above each class/function.
- * The JetBrains equivalent of VS Code's CodeLens provider.
+ * Inline inlay hints: appends `⚡ ~N → ~M lines (P% skeleton)` at the end of each
+ * class/function declaration line. The JetBrains equivalent of VS Code's CodeLens.
+ *
+ * Uses the **stable** declarative inlay API (`codeInsight.declarativeInlayProvider`),
+ * not the deprecated experimental `InlayHintsProvider`. This clears the experimental-API
+ * warnings the Plugin Verifier reported and is the forward-compatible API.
+ *
+ * The provider is intentionally **language-agnostic**: it references only platform PSI
+ * (`PsiElement` / `PsiNamedElement`), never Java-specific classes, so it loads in
+ * PyCharm/WebStorm/GoLand and works for every supported language.
  */
-@Suppress("UnstableApiUsage")
-class TokenSlayerInlayProvider : InlayHintsProvider<NoSettings> {
-    override val key: SettingsKey<NoSettings> = SettingsKey("tokenslayer.inlay")
-    override val name: String = "TokenSlayer skeleton hints"
-    override val previewText: String = "class MyService { ... }"
-
-    override fun createSettings(): NoSettings = NoSettings()
-
-    override fun getCollectorFor(
+class TokenSlayerInlayProvider : InlayHintsProvider {
+    override fun createCollector(
         file: PsiFile,
         editor: Editor,
-        settings: NoSettings,
-        sink: InlayHintsSink,
     ): InlayHintsCollector? {
         if (!TokenSlayerSettings.getInstance().enableInlayHints) return null
         return TokenSlayerInlayCollector(file, editor)
     }
-
-    override fun createConfigurable(settings: NoSettings): ImmediateConfigurable =
-        object : ImmediateConfigurable {
-            override fun createComponent(listener: ChangeListener) = JPanel()
-        }
 }
 
-@Suppress("UnstableApiUsage")
 private class TokenSlayerInlayCollector(
-    private val file: PsiFile,
+    file: PsiFile,
     private val editor: Editor,
-) : InlayHintsCollector {
+) : SharedBypassCollector {
     private val cache = CacheManager.getInstance()
-    private val factory = PresentationFactory(editor)
     private val virtualFile = file.virtualFile
 
-    override fun collect(
+    override fun collectFromElement(
         element: PsiElement,
-        editor: Editor,
-        sink: InlayHintsSink,
-    ): Boolean {
-        if (!isAnnotatableElement(element)) return true
-        if (!element.isValid) return true
+        sink: InlayTreeSink,
+    ) {
+        if (!element.isValid) return
+        if (!isStructuralElement(element)) return
 
-        // Only annotate if file is cached (avoid triggering analysis from hint)
-        val cachedEntry =
-            cache.allEntries()
-                .firstOrNull { it.filePath == virtualFile?.path }
-                ?: return true
+        // Only annotate if the file has already been analyzed and cached
+        // (avoid triggering analysis from a rendering pass).
+        val path = virtualFile?.path ?: return
+        if (cache.allEntries().none { it.filePath == path }) return
 
-        val elementLines = calculateElementLines(element) ?: return true
-        if (elementLines < 10) return true // too small to annotate
+        val elementLines = calculateElementLines(element) ?: return
+        if (elementLines < 10) return // too small to annotate
 
         val skeletonLines = estimateSkeletonLines(element)
         val reductionPct = ((1.0 - skeletonLines.toDouble() / elementLines) * 100).toInt().coerceAtLeast(0)
-        if (reductionPct < 20) return true // not worth showing
+        if (reductionPct < 20) return // not worth showing
 
-        val hintText = " ⚡ ~$elementLines → ~$skeletonLines lines  ($reductionPct% skeleton)"
-        val presentation: InlayPresentation = factory.smallText(hintText)
-        val textRange = element.textRange ?: return true
+        val startOffset = element.textRange?.startOffset ?: return
+        val line = editor.document.getLineNumber(startOffset)
+        val hintText = "⚡ ~$elementLines → ~$skeletonLines lines ($reductionPct% skeleton)"
 
-        sink.addBlockElement(
-            offset = textRange.startOffset,
-            relatesToPrecedingText = false,
-            showAbove = true,
-            priority = 0,
-            presentation = presentation,
-        )
-
-        return true
+        // Note: this addPresentation overload is the one available at our sinceBuild (241).
+        // It was deprecated in 2024.2+, but the replacement doesn't exist in 241, so we keep
+        // this — the Plugin Verifier confirms it stays Compatible across all supported builds.
+        sink.addPresentation(EndOfLinePosition(line), hasBackground = true) {
+            text(hintText)
+        }
     }
 
-    private fun isAnnotatableElement(element: PsiElement): Boolean =
-        (element is PsiClass && element.parent is PsiFile) || element is PsiMethod
+    /**
+     * Heuristically decide whether a PSI node is a class/function-like declaration,
+     * based on its node type name. Works across languages without any hard
+     * dependency on a specific language plugin.
+     */
+    private fun isStructuralElement(element: PsiElement): Boolean {
+        val named = element as? PsiNamedElement ?: return false
+        if (named.name.isNullOrBlank()) return false
+        val typeName = element.javaClass.simpleName.lowercase()
+        return STRUCTURAL_MARKERS.any { it in typeName }
+    }
 
     private fun calculateElementLines(element: PsiElement): Int? {
-        val doc =
-            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance()
-                .getDocument(virtualFile ?: return null) ?: return null
         val range = element.textRange ?: return null
+        val doc = editor.document
+        if (range.endOffset > doc.textLength) return null
         val startLine = doc.getLineNumber(range.startOffset)
         val endLine = doc.getLineNumber(range.endOffset)
         return endLine - startLine + 1
     }
 
-    private fun estimateSkeletonLines(element: PsiElement): Int =
-        when (element) {
-            is PsiClass -> 1 + element.methods.size + element.fields.size / 2
-            is PsiMethod -> 1
-            else -> 1
-        }.coerceAtLeast(1)
+    /** Generic skeleton-size estimate: one line for the signature + one per named member. */
+    private fun estimateSkeletonLines(element: PsiElement): Int {
+        val namedChildren = element.children.count { it is PsiNamedElement && !it.name.isNullOrBlank() }
+        return (1 + namedChildren).coerceAtLeast(1)
+    }
+
+    private companion object {
+        val STRUCTURAL_MARKERS =
+            listOf(
+                "class",
+                "interface",
+                "object",
+                "struct",
+                "trait",
+                "impl",
+                "enum",
+                "function",
+                "method",
+                "fun",
+            )
+    }
 }

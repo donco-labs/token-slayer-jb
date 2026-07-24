@@ -1,2 +1,23 @@
-<!-- JavaScript/TypeScript language support -->
-<idea-plugin/>
+<!-- JavaScript/TypeScript language support. Loaded only when the JavaScript plugin is present. -->
+<idea-plugin>
+    <extensions defaultExtensionNs="com.intellij">
+        <codeInsight.declarativeInlayProvider
+            language="JavaScript"
+            providerId="tokenslayer.hints"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"
+            isEnabledByDefault="true"
+            group="OTHER_GROUP"
+            bundle="messages.TokenSlayerBundle"
+            nameKey="inlay.tokenslayer.name"
+            descriptionKey="inlay.tokenslayer.description"/>
+        <codeInsight.declarativeInlayProvider
+            language="TypeScript"
+            providerId="tokenslayer.hints"
+            implementationClass="com.tokenslayer.ui.inlay.TokenSlayerInlayProvider"
+            isEnabledByDefault="true"
+            group="OTHER_GROUP"
+            bundle="messages.TokenSlayerBundle"
+            nameKey="inlay.tokenslayer.name"
+            descriptionKey="inlay.tokenslayer.description"/>
+    </extensions>
+</idea-plugin>

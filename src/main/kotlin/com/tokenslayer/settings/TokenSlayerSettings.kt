@@ -33,6 +33,10 @@ class TokenSlayerSettings : PersistentStateComponent<TokenSlayerSettings.State> 
         var enableInlayHints: Boolean = true,
         var enableFileDecorations: Boolean = true,
         var autoAnalyzeOnOpen: Boolean = true,
+        // Preferred local port for the embedded MCP server. A *stable* port is what makes a
+        // GitHub Copilot MCP registration keep working across IDE restarts (the server used to
+        // bind a random port each session, so any saved config went stale immediately).
+        var mcpServerPort: Int = DEFAULT_MCP_PORT,
     )
 
     private var state = State()
@@ -79,6 +83,12 @@ class TokenSlayerSettings : PersistentStateComponent<TokenSlayerSettings.State> 
             state.autoAnalyzeOnOpen = value
         }
 
+    var mcpServerPort: Int
+        get() = state.mcpServerPort
+        set(value) {
+            state.mcpServerPort = value.coerceIn(1024, 65_535)
+        }
+
     override fun getState(): State = state.copy(ignoredPaths = state.ignoredPaths.toMutableList())
 
     override fun loadState(state: State) {
@@ -86,6 +96,8 @@ class TokenSlayerSettings : PersistentStateComponent<TokenSlayerSettings.State> 
     }
 
     companion object {
+        const val DEFAULT_MCP_PORT = 8763
+
         fun getInstance(): TokenSlayerSettings = service()
     }
 }

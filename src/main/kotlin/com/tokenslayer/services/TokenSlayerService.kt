@@ -59,9 +59,17 @@ class TokenSlayerService {
     fun analyzeFile(
         virtualFile: VirtualFile,
         project: Project,
+        verbosityOverride: Verbosity? = null,
     ): FileAnalysisResult? {
         val filePath = virtualFile.path
         val ext = virtualFile.extension?.lowercase() ?: return null
+
+        // The shared cache + dashboard stats are keyed to the user's configured verbosity.
+        // When a caller (e.g. the MCP tool) requests a different verbosity, compute a
+        // fresh skeleton but do NOT read/write the cache, so per-file stats stay accurate
+        // and the dashboard doesn't double-count the same file at multiple verbosities.
+        val effectiveVerbosity = verbosityOverride ?: settings.verbosity
+        val useCache = verbosityOverride == null || verbosityOverride == settings.verbosity
 
         if (ext !in SUPPORTED_EXTENSIONS) return null
         if (isIgnored(filePath)) return null
@@ -96,23 +104,25 @@ class TokenSlayerService {
 
         // Cache check
         val contentHash = CacheManager.contentHash(content)
-        val cached = cache.get(contentHash)
-        if (cached != null) {
-            addToRecent(cached)
-            return FileAnalysisResult(
-                filePath = filePath,
-                language = cached.language,
-                skeleton = cached.skeleton,
-                originalTokens = cached.originalTokens,
-                skeletonTokens = cached.skeletonTokens,
-                secretsScan = secretsScan,
-                fromCache = true,
-            )
+        if (useCache) {
+            val cached = cache.get(contentHash)
+            if (cached != null) {
+                addToRecent(cached)
+                return FileAnalysisResult(
+                    filePath = filePath,
+                    language = cached.language,
+                    skeleton = cached.skeleton,
+                    originalTokens = cached.originalTokens,
+                    skeletonTokens = cached.skeletonTokens,
+                    secretsScan = secretsScan,
+                    fromCache = true,
+                )
+            }
         }
 
         // PSI extraction
         val psiFile =
-            com.intellij.openapi.application.runReadAction {
+            com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
                 PsiManager.getInstance(project).findFile(virtualFile)
             } ?: return null
 
@@ -130,13 +140,15 @@ class TokenSlayerService {
         val refinedSymbols = compactor?.refineSymbols(symbols, content) ?: symbols
 
         val totalLines = content.lines().size
-        val verbosity = settings.verbosity
-        val skeleton = skeletonBuilder.build(refinedSymbols, filePath, totalLines, verbosity)
+        val skeleton = skeletonBuilder.build(refinedSymbols, filePath, totalLines, effectiveVerbosity)
 
+        // Estimate both sides with the SAME language-aware basis so the reduction figure is
+        // honest. Previously the original used estimateForLanguage() while the skeleton used
+        // the raw estimate(), which applied the language multiplier to one side only and
+        // skewed the reported savings.
         val originalTokens = TokenEstimator.estimateForLanguage(content, language)
-        val skeletonTokens = TokenEstimator.estimate(skeleton)
+        val skeletonTokens = TokenEstimator.estimateForLanguage(skeleton, language)
 
-        // Store in cache
         val entry =
             CacheEntry(
                 skeleton = skeleton,
@@ -146,8 +158,10 @@ class TokenSlayerService {
                 language = language,
                 filePath = filePath,
             )
-        cache.put(entry)
-        addToRecent(entry)
+        if (useCache) {
+            cache.put(entry)
+            addToRecent(entry)
+        }
 
         log.info("Analyzed $filePath: ${entry.reductionPct}% reduction (${entry.originalTokens} → ${entry.skeletonTokens} tokens)")
 

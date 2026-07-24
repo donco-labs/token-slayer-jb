@@ -69,21 +69,59 @@ class TokenSlayerMcpServer {
      */
     fun start() {
         if (httpServer != null) return
-        try {
-            val server = HttpServer.create(InetSocketAddress("localhost", 0), 0)
-            server.createContext("/mcp", ::handleMcpRequest)
-            server.createContext("/health") { ex ->
-                respond(ex, 200, """{"status":"ok","server":"$SERVER_NAME"}""")
-            }
-            server.executor = Executors.newCachedThreadPool()
-            server.start()
-            serverPort = server.address.port
-            httpServer = server
-            log.info("TokenSlayer MCP server started on http://localhost:$serverPort/mcp")
-        } catch (e: Exception) {
-            log.error("Failed to start MCP server", e)
+
+        // Prefer the user's configured (stable) port so a saved Copilot registration keeps
+        // working across restarts; fall back to an ephemeral port if it's already taken.
+        val preferredPort = TokenSlayerSettings.getInstance().mcpServerPort
+        val server =
+            createServerOn(preferredPort)
+                ?: createServerOn(0)
+                ?: run {
+                    // Use warn, not error: a failed MCP start is recoverable and must NOT
+                    // surface the IDE's red "Internal Error" dialog. Logger.error() in the
+                    // IntelliJ Platform is reported to the fatal-error handler and shown to the user.
+                    log.warn("Failed to start MCP server on any port")
+                    return
+                }
+
+        server.createContext("/mcp", ::handleMcpRequest)
+        server.createContext("/health") { ex ->
+            respond(ex, 200, """{"status":"ok","server":"$SERVER_NAME"}""")
         }
+        server.executor = Executors.newCachedThreadPool()
+        server.start()
+        serverPort = server.address.port
+        httpServer = server
+        log.info("TokenSlayer MCP server started on http://localhost:$serverPort/mcp")
     }
+
+    private fun createServerOn(port: Int): HttpServer? =
+        try {
+            HttpServer.create(InetSocketAddress("localhost", port), 0)
+        } catch (e: Exception) {
+            if (port != 0) log.warn("MCP port $port unavailable; will try an ephemeral port", e)
+            null
+        }
+
+    /**
+     * Path to GitHub Copilot for JetBrains' MCP config file. Copilot reads MCP servers from
+     * this global file (it does NOT read a per-repo file), so this is where a user registers
+     * TokenSlayer. See getServerUrl()/getCopilotConfigSnippet() for the entry to add.
+     */
+    fun getCopilotConfigPath(): String = System.getProperty("user.home") + "/.config/github-copilot/intellij/mcp.json"
+
+    /** The JSON entry a user pastes into [getCopilotConfigPath] to register this server. */
+    fun getCopilotConfigSnippet(): String =
+        """
+        {
+          "servers": {
+            "tokenslayer": {
+              "type": "http",
+              "url": "${getServerUrl()}"
+            }
+          }
+        }
+        """.trimIndent()
 
     fun stop() {
         httpServer?.stop(1)
@@ -206,9 +244,10 @@ class TokenSlayerMcpServer {
             return buildToolError("Unknown tool: $toolName")
         }
 
-        val verbosity =
-            args.get("verbosity")?.asString?.let { Verbosity.from(it) }
-                ?: TokenSlayerSettings.getInstance().verbosity
+        // Optional per-call verbosity. When absent, the configured default is used and the
+        // shared cache is consulted; when present, a fresh skeleton is built at that verbosity.
+        val verbosityOverride =
+            args.get("verbosity")?.asString?.takeIf { it.isNotBlank() }?.let { Verbosity.from(it) }
 
         val project =
             ProjectManager.getInstance().openProjects.firstOrNull()
@@ -228,19 +267,21 @@ class TokenSlayerMcpServer {
                 }
                 ?: return buildToolError("No file specified and no active editor file")
 
-        // Try to get from cache first
-        val cachedSkeleton = TokenSlayerService.getInstance().getCachedSkeleton(filePath)
-        if (cachedSkeleton != null) {
-            return buildToolSuccess(cachedSkeleton, filePath, fromCache = true)
+        // Fast path: at the default verbosity, serve an already-cached skeleton if present.
+        if (verbosityOverride == null) {
+            val cachedSkeleton = TokenSlayerService.getInstance().getCachedSkeleton(filePath)
+            if (cachedSkeleton != null) {
+                return buildToolSuccess(cachedSkeleton, filePath, fromCache = true)
+            }
         }
 
-        // Find VirtualFile and analyze
+        // Find VirtualFile and analyze (honoring the requested verbosity).
         val vFile =
             com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
                 ?: return buildToolError("File not found: $filePath")
 
         val result =
-            TokenSlayerService.getInstance().analyzeFile(vFile, project)
+            TokenSlayerService.getInstance().analyzeFile(vFile, project, verbosityOverride)
                 ?: return buildToolError("Could not analyze file: $filePath (unsupported type or read error)")
 
         if (result.secretsScan.hasSecrets) {
@@ -250,7 +291,7 @@ class TokenSlayerMcpServer {
         return buildToolSuccess(
             result.skeleton,
             filePath,
-            fromCache = false,
+            fromCache = result.fromCache,
             originalTokens = result.originalTokens,
             skeletonTokens = result.skeletonTokens,
         )

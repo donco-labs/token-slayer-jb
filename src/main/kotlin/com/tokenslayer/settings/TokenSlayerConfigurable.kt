@@ -23,6 +23,7 @@ class TokenSlayerConfigurable : Configurable {
     private lateinit var enableInlayHintsBox: JBCheckBox
     private lateinit var enableFileDecorationsBox: JBCheckBox
     private lateinit var autoAnalyzeOnOpenBox: JBCheckBox
+    private lateinit var mcpPortSpinner: JSpinner
 
     override fun getDisplayName(): String = "TokenSlayer"
 
@@ -37,6 +38,15 @@ class TokenSlayerConfigurable : Configurable {
         enableInlayHintsBox = JBCheckBox("Show ⚡ inlay hints above classes and functions", settings.enableInlayHints)
         enableFileDecorationsBox = JBCheckBox("Show reduction badges on Project tree file nodes", settings.enableFileDecorations)
         autoAnalyzeOnOpenBox = JBCheckBox("Auto-analyze files when opened or saved", settings.autoAnalyzeOnOpen)
+        mcpPortSpinner = JSpinner(SpinnerNumberModel(settings.mcpServerPort, 1024, 65_535, 1))
+
+        val mcpServer = com.tokenslayer.copilot.TokenSlayerMcpServer.getInstance()
+        val mcpUrl =
+            if (mcpServer.serverPort != 0) {
+                mcpServer.getServerUrl()
+            } else {
+                "http://localhost:${settings.mcpServerPort}/mcp (starting…)"
+            }
 
         return panel {
             group("Analysis") {
@@ -63,6 +73,30 @@ class TokenSlayerConfigurable : Configurable {
                 row { cell(enableFileDecorationsBox) }
                 row { cell(autoAnalyzeOnOpenBox) }
             }
+
+            group("GitHub Copilot (MCP)") {
+                row("Server port:") {
+                    cell(mcpPortSpinner)
+                    comment("Stable local port for the embedded MCP server (restart the IDE to apply a change)")
+                }
+                row("Server URL:") {
+                    label(mcpUrl)
+                }
+                row {
+                    comment(
+                        "To let Copilot call TokenSlayer automatically, add the snippet below to " +
+                            "<code>~/.config/github-copilot/intellij/mcp.json</code>, then reload MCP servers in Copilot. " +
+                            "(This is GitHub Copilot's global config file — TokenSlayer does not modify it for you.)",
+                    )
+                }
+                row {
+                    button("Copy Copilot mcp.json snippet") {
+                        val snippet = com.tokenslayer.copilot.TokenSlayerMcpServer.getInstance().getCopilotConfigSnippet()
+                        java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                            .setContents(java.awt.datatransfer.StringSelection(snippet), null)
+                    }
+                }
+            }
         }
     }
 
@@ -73,7 +107,8 @@ class TokenSlayerConfigurable : Configurable {
             ignoredPathsField.text != settings.ignoredPaths.joinToString(", ") ||
             enableInlayHintsBox.isSelected != settings.enableInlayHints ||
             enableFileDecorationsBox.isSelected != settings.enableFileDecorations ||
-            autoAnalyzeOnOpenBox.isSelected != settings.autoAnalyzeOnOpen
+            autoAnalyzeOnOpenBox.isSelected != settings.autoAnalyzeOnOpen ||
+            (mcpPortSpinner.value as? Int ?: settings.mcpServerPort) != settings.mcpServerPort
     }
 
     override fun apply() {
@@ -84,6 +119,7 @@ class TokenSlayerConfigurable : Configurable {
         settings.enableInlayHints = enableInlayHintsBox.isSelected
         settings.enableFileDecorations = enableFileDecorationsBox.isSelected
         settings.autoAnalyzeOnOpen = autoAnalyzeOnOpenBox.isSelected
+        settings.mcpServerPort = mcpPortSpinner.value as? Int ?: settings.mcpServerPort
     }
 
     override fun reset() {
@@ -94,5 +130,6 @@ class TokenSlayerConfigurable : Configurable {
         enableInlayHintsBox.isSelected = settings.enableInlayHints
         enableFileDecorationsBox.isSelected = settings.enableFileDecorations
         autoAnalyzeOnOpenBox.isSelected = settings.autoAnalyzeOnOpen
+        mcpPortSpinner.value = settings.mcpServerPort
     }
 }
