@@ -7,19 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- GitHub Copilot (MCP) settings section (**Settings → Tools → TokenSlayer**) showing the server URL and a "Copy Copilot mcp.json snippet" button for registering the server in `~/.config/github-copilot/intellij/mcp.json`.
-- Stable, configurable local port for the embedded MCP server, so a Copilot registration keeps working across IDE restarts.
-
 ### Changed
 
-- The plugin now loads in IDEs without the Java module (PyCharm, WebStorm, GoLand, Rider, …); all language support is isolated in optional modules loaded only when that language is present.
-- Structural extraction now uses a recursive PSI traversal, so Python, JavaScript/TypeScript, Kotlin and Go produce real skeletons instead of empty ones.
-- Inlay hints migrated to the stable declarative inlay API (from the deprecated experimental one).
-- Original and skeleton token counts now use the same language-aware estimator, for an honest reduction figure.
-- Removed the hardcoded `until-build` cap so the plugin stays installable on newer IDE releases.
-- Release version is now derived from the pushed git tag rather than hardcoded.
 - Workspace analysis reports progress in the TokenSlayer tool window ("Analyzing… N / M files") and
   shows a completion notification for explicitly requested runs. The background task's status-bar
   indicator only appears in its own project window, which made it easy to miss.
@@ -28,12 +17,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- No longer crashes on PyCharm/WebStorm — the hard dependency on the Java module was removed.
-- Language-routing bug that sent JavaScript files to the Java extractor and produced empty skeletons.
-- The MCP tool's `verbosity` argument is now honored.
-- MCP server startup failures no longer surface the IDE's red "Internal Error" dialog.
-- Stopped writing `.github/copilot-mcp.json` into the user's project.
-- Added the missing tool-window icon class that failed to resolve at load time.
 - Dashboard and analysis are now scoped per project. With several workspaces open they shared a
   single cache, so every dashboard summed all of them; identical files in different projects also
   collided on their cache key, silently costing the second project its tree badge and skeleton.
@@ -50,6 +33,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per project.
 - The **Auto-analyze on open** setting is now honored — the startup scan previously always ran and
   could not be turned off.
+
+## [0.3.0]
+
+### Added
+
+- GitHub Copilot (MCP) settings section (**Settings → Tools → TokenSlayer**) showing the server URL and a "Copy Copilot mcp.json snippet" button for registering the server in `~/.config/github-copilot/intellij/mcp.json`.
+- Stable, configurable local port for the embedded MCP server, so a Copilot registration keeps working across IDE restarts.
+
+### Changed
+
+- The plugin now loads in IDEs without the Java module (PyCharm, WebStorm, GoLand, Rider, …); all language support is isolated in optional modules loaded only when that language is present.
+- Structural extraction now uses a recursive PSI traversal, so Python, JavaScript/TypeScript, Kotlin and Go produce real skeletons instead of empty ones.
+- Inlay hints migrated to the stable declarative inlay API (from the deprecated experimental one).
+- Original and skeleton token counts now use the same language-aware estimator, for an honest reduction figure.
+- Removed the hardcoded `until-build` cap so the plugin stays installable on newer IDE releases.
+- Release version is now derived from the pushed git tag rather than hardcoded.
+
+### Fixed
+
+- No longer crashes on PyCharm/WebStorm — the hard dependency on the Java module was removed.
+- Language-routing bug that sent JavaScript files to the Java extractor and produced empty skeletons.
+- The MCP tool's `verbosity` argument is now honored.
+- MCP server startup failures no longer surface the IDE's red "Internal Error" dialog.
+- Stopped writing `.github/copilot-mcp.json` into the user's project.
+- Added the missing tool-window icon class that failed to resolve at load time.
 
 ## [0.2.0]
 
