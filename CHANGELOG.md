@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Workspace analysis reports progress in the TokenSlayer tool window ("Analyzing… N / M files") and
+  shows a completion notification for explicitly requested runs. The background task's status-bar
+  indicator only appears in its own project window, which made it easy to miss.
+- Overlapping analysis runs are coalesced, so a startup scan and a manual **Analyze Workspace** no
+  longer scan the project twice.
+
+### Fixed
+
+- Dashboard and analysis are now scoped per project. With several workspaces open they shared a
+  single cache, so every dashboard summed all of them; identical files in different projects also
+  collided on their cache key, silently costing the second project its tree badge and skeleton.
+- File changes are no longer analyzed into every open project's cache — only the project that
+  actually owns the file.
+- The Copilot MCP tool now resolves the workspace containing the requested file instead of
+  picking an arbitrary open project.
+- Light theme no longer renders with the dark palette (both `JBColor` variants were set to the
+  dark colour). Backgrounds and body text now follow the active IDE theme, including custom ones.
+- The project-tree reduction badge no longer hides the file name.
+- A corrupted IntelliJ VFS cache no longer crashes workspace analysis; it reports what happened
+  and points at **File → Invalidate Caches and Restart**.
+- The **Cache max entries** setting is now honored (it previously had no effect); the cap applies
+  per project.
+- The **Auto-analyze on open** setting is now honored — the startup scan previously always ran and
+  could not be turned off.
+
+## [0.3.0]
+
 ### Added
 
 - GitHub Copilot (MCP) settings section (**Settings → Tools → TokenSlayer**) showing the server URL and a "Copy Copilot mcp.json snippet" button for registering the server in `~/.config/github-copilot/intellij/mcp.json`.

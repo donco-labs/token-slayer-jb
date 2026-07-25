@@ -8,6 +8,7 @@ import com.intellij.util.concurrency.AppExecutorUtil
 import com.tokenslayer.actions.ExportReportAction
 import com.tokenslayer.services.TokenSlayerService
 import com.tokenslayer.types.WorkspaceStats
+import com.tokenslayer.ui.TokenSlayerColors
 import com.tokenslayer.utils.TokenEstimator
 import java.awt.*
 import java.awt.event.ActionEvent
@@ -21,7 +22,7 @@ import javax.swing.border.EmptyBorder
  * Auto-refreshes every 5 seconds.
  */
 class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
-    private val tsService = TokenSlayerService.getInstance()
+    private val tsService = TokenSlayerService.getInstance(project)
 
     // ── Stat labels ───────────────────────────────────────────────────────────
     private val heroLabel = JBLabel("0", SwingConstants.CENTER)
@@ -31,6 +32,13 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val cachedEntriesLabel = JBLabel("0")
     private val excludedCountLabel = JBLabel("0")
 
+    /**
+     * Live analysis status. A Task.Backgroundable only reports into the status-bar widget of its
+     * own project frame, so a startup scan was invisible if that window wasn't focused. Mirroring
+     * the state here puts it where the user is already looking.
+     */
+    private val statusLabel = JBLabel("", SwingConstants.CENTER)
+
     // ── Content panels ────────────────────────────────────────────────────────
     private val langPanel = JPanel()
     private val topSaversPanel = JPanel()
@@ -39,7 +47,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private var refreshTask: java.util.concurrent.ScheduledFuture<*>? = null
 
     init {
-        background = JBColor(Color(0x1E1E2E), Color(0x1E1E2E))
+        background = TokenSlayerColors.panelBackground
         border = EmptyBorder(8, 8, 8, 8)
         buildUI()
         startAutoRefresh()
@@ -82,19 +90,26 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
 
         heroLabel.apply {
             font = Font("JetBrains Mono", Font.BOLD, 36)
-            foreground = JBColor(Color(0x89DCEB), Color(0x89DCEB))
+            foreground = TokenSlayerColors.SKY
         }
 
         val titleLabel =
             JBLabel("⚡ Tokens Slayed", SwingConstants.CENTER).apply {
                 font = Font(font.name, Font.PLAIN, 11)
-                foreground = JBColor(Color(0xBAC2DE), Color(0xBAC2DE))
+                foreground = TokenSlayerColors.subtext
             }
 
-        val inner = JPanel(GridLayout(2, 1))
+        statusLabel.apply {
+            font = Font(font.name, Font.PLAIN, 11)
+            foreground = TokenSlayerColors.YELLOW
+            isVisible = false
+        }
+
+        val inner = JPanel(GridLayout(3, 1))
         inner.isOpaque = false
         inner.add(heroLabel)
         inner.add(titleLabel)
+        inner.add(statusLabel)
         panel.add(inner, BorderLayout.CENTER)
         return panel
     }
@@ -105,18 +120,18 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         val grid = JPanel(GridLayout(2, 3, 8, 8))
         grid.isOpaque = false
 
-        grid.add(statCard("Reduction", reductionLabel, Color(0xA6E3A1)))
-        grid.add(statCard("Files", filesLabel, Color(0x89DCEB)))
-        grid.add(statCard("Cache Hit", cacheHitLabel, Color(0xF9E2AF)))
-        grid.add(statCard("Cached", cachedEntriesLabel, Color(0xCBA6F7)))
-        grid.add(statCard("Excluded", excludedCountLabel, Color(0xF38BA8)))
+        grid.add(statCard("Reduction", reductionLabel, TokenSlayerColors.GREEN))
+        grid.add(statCard("Files", filesLabel, TokenSlayerColors.SKY))
+        grid.add(statCard("Cache Hit", cacheHitLabel, TokenSlayerColors.YELLOW))
+        grid.add(statCard("Cached", cachedEntriesLabel, TokenSlayerColors.MAUVE))
+        grid.add(statCard("Excluded", excludedCountLabel, TokenSlayerColors.RED))
         grid.add(
             statCard(
                 "MCP Server",
                 JBLabel("●").apply {
-                    foreground = Color(0xA6E3A1)
+                    foreground = TokenSlayerColors.GREEN
                 },
-                Color(0xA6E3A1),
+                TokenSlayerColors.GREEN,
             ),
         )
 
@@ -126,24 +141,24 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun statCard(
         title: String,
         valueLabel: JComponent,
-        accent: Color,
+        accent: JBColor,
     ): JPanel {
         val card = JPanel(BorderLayout(0, 2))
         card.border =
             BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(JBColor(Color(0x313244), Color(0x313244))),
+                BorderFactory.createLineBorder(TokenSlayerColors.border),
                 EmptyBorder(8, 8, 8, 8),
             )
-        card.background = JBColor(Color(0x181825), Color(0x181825))
+        card.background = TokenSlayerColors.cardBackground
 
         val titleLbl =
             JBLabel(title).apply {
                 font = Font(font.name, Font.PLAIN, 10)
-                foreground = JBColor(Color(0xBAC2DE), Color(0xBAC2DE))
+                foreground = TokenSlayerColors.subtext
             }
         if (valueLabel is JBLabel) {
             valueLabel.font = Font("JetBrains Mono", Font.BOLD, 16)
-            valueLabel.foreground = JBColor(accent, accent)
+            valueLabel.foreground = accent
         }
 
         card.add(titleLbl, BorderLayout.NORTH)
@@ -163,7 +178,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         val titleLbl =
             JBLabel(title).apply {
                 font = Font(font.name, Font.BOLD, 12)
-                foreground = JBColor(Color(0xCDD6F4), Color(0xCDD6F4))
+                foreground = TokenSlayerColors.text
                 border = EmptyBorder(0, 0, 4, 0)
             }
 
@@ -184,7 +199,8 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         val analyzeBtn =
             JButton("🔄 Analyze Workspace").apply {
                 addActionListener { _: ActionEvent ->
-                    com.tokenslayer.services.ProjectAnalyzerService.getInstance(project).analyzeAll { refresh() }
+                    com.tokenslayer.services.ProjectAnalyzerService.getInstance(project)
+                        .analyzeAll(notifyOnComplete = true) { refresh() }
                 }
             }
 
@@ -230,6 +246,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun refresh() {
+        updateAnalysisStatus()
         val stats = tsService.computeStats()
         updateHero(stats)
         updateStats(stats)
@@ -239,6 +256,22 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         updateSecrets(stats)
         revalidate()
         repaint()
+    }
+
+    private fun updateAnalysisStatus() {
+        val analyzer = com.tokenslayer.services.ProjectAnalyzerService.getInstance(project)
+        if (!analyzer.isAnalyzing) {
+            statusLabel.isVisible = false
+            return
+        }
+        val total = analyzer.progressTotal
+        statusLabel.text =
+            if (total > 0) {
+                "⏳ Analyzing… ${analyzer.progressProcessed} / $total files"
+            } else {
+                "⏳ Scanning project files…"
+            }
+        statusLabel.isVisible = true
     }
 
     private fun updateHero(stats: WorkspaceStats) {
@@ -276,7 +309,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             row.add(
                 JBLabel("$icon ${ls.language}  ${ls.files}f  ${ls.reductionPct}%").apply {
                     font = Font("JetBrains Mono", Font.PLAIN, 11)
-                    foreground = JBColor(Color(0xCDD6F4), Color(0xCDD6F4))
+                    foreground = TokenSlayerColors.text
                 },
                 BorderLayout.WEST,
             )
@@ -284,8 +317,8 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
                 JProgressBar(0, 100).apply {
                     value = ls.reductionPct
                     isStringPainted = false
-                    background = Color(0x313244)
-                    foreground = Color(0x89DCEB)
+                    background = TokenSlayerColors.track
+                    foreground = TokenSlayerColors.SKY
                     preferredSize = Dimension(80, 8)
                 }
             row.add(bar, BorderLayout.EAST)
@@ -308,7 +341,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             topSaversPanel.add(
                 JBLabel("$medal $name  −${TokenEstimator.format(entry.tokensSaved)} tok  ${entry.reductionPct}%").apply {
                     font = Font("JetBrains Mono", Font.PLAIN, 11)
-                    foreground = JBColor(Color(0xCDD6F4), Color(0xCDD6F4))
+                    foreground = TokenSlayerColors.text
                     maximumSize = Dimension(Int.MAX_VALUE, 18)
                 },
             )
@@ -333,7 +366,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             recentPanel.add(
                 JBLabel("$badge  $name").apply {
                     font = Font("JetBrains Mono", Font.PLAIN, 11)
-                    foreground = JBColor(Color(0xBAC2DE), Color(0xBAC2DE))
+                    foreground = TokenSlayerColors.subtext
                     maximumSize = Dimension(Int.MAX_VALUE, 18)
                 },
             )
@@ -358,7 +391,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             secretsPanel.add(
                 JBLabel("$sev  $name").apply {
                     font = Font("JetBrains Mono", Font.PLAIN, 11)
-                    foreground = JBColor(Color(0xF38BA8), Color(0xF38BA8))
+                    foreground = TokenSlayerColors.RED
                     maximumSize = Dimension(Int.MAX_VALUE, 18)
                 },
             )
@@ -369,7 +402,7 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private fun dimLabel(text: String) =
         JBLabel(text).apply {
             font = Font(font.name, Font.ITALIC, 11)
-            foreground = JBColor(Color(0x6C7086), Color(0x6C7086))
+            foreground = TokenSlayerColors.dim
         }
 
     private fun buildQuickSummary(stats: WorkspaceStats): String =

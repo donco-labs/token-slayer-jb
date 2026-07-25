@@ -16,15 +16,20 @@ import com.tokenslayer.utils.SecretsDetector
 import com.tokenslayer.utils.TokenEstimator
 
 /**
- * Application-level singleton service.
+ * Project-level service.
  * Core orchestrator: extracts symbols, builds skeletons, manages cache and stats.
+ *
+ * PROJECT-scoped on purpose — see the note on [CacheManager]. The cache, the excluded-file
+ * list, the recent-activity list and the cache hit/miss counters are all per-workspace state,
+ * so a service instance per project keeps each dashboard reporting only its own project.
+ * Settings remain application-level, since those are genuinely global user preferences.
  */
-@Service(Service.Level.APP)
-class TokenSlayerService {
+@Service(Service.Level.PROJECT)
+class TokenSlayerService(private val project: Project) {
     private val log = logger<TokenSlayerService>()
     private val extractor = PsiSymbolExtractor()
     private val skeletonBuilder = SkeletonBuilder()
-    private val cache get() = CacheManager.getInstance()
+    private val cache get() = CacheManager.getInstance(project)
     private val settings get() = TokenSlayerSettings.getInstance()
 
     val excludedFiles = java.util.concurrent.CopyOnWriteArrayList<ExcludedFile>()
@@ -47,7 +52,7 @@ class TokenSlayerService {
                 "rs",
             )
 
-        fun getInstance(): TokenSlayerService = service()
+        fun getInstance(project: Project): TokenSlayerService = project.service()
     }
 
     // ── Analysis ─────────────────────────────────────────────────────────────
@@ -58,7 +63,6 @@ class TokenSlayerService {
      */
     fun analyzeFile(
         virtualFile: VirtualFile,
-        project: Project,
         verbosityOverride: Verbosity? = null,
     ): FileAnalysisResult? {
         val filePath = virtualFile.path

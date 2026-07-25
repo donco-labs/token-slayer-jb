@@ -25,11 +25,11 @@ class PreviewSkeletonAction : AnAction("Preview Skeleton"), DumbAware {
                 return
             }
 
-        val tsService = TokenSlayerService.getInstance()
+        val tsService = TokenSlayerService.getInstance(project)
         val skeleton =
             tsService.getCachedSkeleton(file.path)
                 ?: run {
-                    val result = tsService.analyzeFile(file, project)
+                    val result = tsService.analyzeFile(file)
                     result?.skeleton ?: "// No skeleton available — analyze the file first"
                 }
 

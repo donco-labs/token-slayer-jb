@@ -7,6 +7,7 @@ import com.intellij.openapi.vfs.*
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.services.ProjectAnalyzerService
 import com.tokenslayer.services.TokenSlayerService
+import com.tokenslayer.settings.TokenSlayerSettings
 
 /**
  * Plugin startup activity. Runs when a project opens.
@@ -38,9 +39,16 @@ class TokenSlayerPlugin : ProjectActivity {
             project,
         )
 
-        // Trigger workspace analysis in background
-        ProjectAnalyzerService.getInstance(project).analyzeAll { count ->
-            log.info("TokenSlayer: Initial scan complete — $count files analyzed")
+        // Trigger workspace analysis in background — but only if the user wants it. The
+        // "Auto-analyze" setting was previously read nowhere, so this scan always ran and
+        // could not be turned off. No completion balloon here: with several workspaces
+        // restored at startup that would be one balloon per window.
+        if (TokenSlayerSettings.getInstance().autoAnalyzeOnOpen) {
+            ProjectAnalyzerService.getInstance(project).analyzeAll { count ->
+                log.info("TokenSlayer: Initial scan complete — $count files analyzed")
+            }
+        } else {
+            log.info("TokenSlayer: Auto-analyze on open is disabled, skipping initial scan")
         }
     }
 }
@@ -49,7 +57,7 @@ class TokenSlayerPlugin : ProjectActivity {
  * Listens for file changes and invalidates stale cache entries.
  */
 private class TokenSlayerAsyncFileListener(private val project: Project) : com.intellij.openapi.vfs.AsyncFileListener {
-    private val cache get() = CacheManager.getInstance()
+    private val cache get() = CacheManager.getInstance(project)
     private val analyzer get() = ProjectAnalyzerService.getInstance(project)
 
     override fun prepareChange(
@@ -75,11 +83,30 @@ private class TokenSlayerAsyncFileListener(private val project: Project) : com.i
                                 cache.invalidate(event.oldPath)
                             }
                             cache.invalidate(file.path)
-                            analyzer.analyzeFile(file)
+                            // VFS events are application-wide, but this listener is registered
+                            // once per open project. Without this guard every project would
+                            // analyze every other project's files into its own cache — exactly
+                            // the cross-workspace mixing the per-project services fix.
+                            if (TokenSlayerSettings.getInstance().autoAnalyzeOnOpen &&
+                                belongsToProject(file)
+                            ) {
+                                analyzer.analyzeFile(file)
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /** True when [file] is inside this project's content roots. */
+    private fun belongsToProject(file: com.intellij.openapi.vfs.VirtualFile): Boolean {
+        if (project.isDisposed) return false
+        return com.intellij.openapi.application.ApplicationManager.getApplication().runReadAction(
+            com.intellij.openapi.util.Computable {
+                !project.isDisposed &&
+                    com.intellij.openapi.roots.ProjectFileIndex.getInstance(project).isInContent(file)
+            },
+        )
     }
 }

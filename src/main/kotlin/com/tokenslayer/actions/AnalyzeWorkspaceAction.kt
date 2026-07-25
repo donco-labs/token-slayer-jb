@@ -9,6 +9,6 @@ import com.tokenslayer.services.ProjectAnalyzerService
 class AnalyzeWorkspaceAction : AnAction("Analyze Workspace"), DumbAware {
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        ProjectAnalyzerService.getInstance(project).analyzeAll()
+        ProjectAnalyzerService.getInstance(project).analyzeAll(notifyOnComplete = true)
     }
 }

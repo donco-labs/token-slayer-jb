@@ -20,10 +20,10 @@ class CopySummaryAction : AnAction("Copy Skeleton Summary"), DumbAware {
         val project = e.project ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
 
-        val tsService = TokenSlayerService.getInstance()
+        val tsService = TokenSlayerService.getInstance(project)
         val skeleton =
             tsService.getCachedSkeleton(file.path)
-                ?: tsService.analyzeFile(file, project)?.skeleton
+                ?: tsService.analyzeFile(file)?.skeleton
                 ?: return
 
         val clipboard = Toolkit.getDefaultToolkit().systemClipboard
