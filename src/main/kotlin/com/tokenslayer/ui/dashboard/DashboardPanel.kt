@@ -9,6 +9,7 @@ import com.tokenslayer.actions.ExportReportAction
 import com.tokenslayer.services.TokenSlayerService
 import com.tokenslayer.types.WorkspaceStats
 import com.tokenslayer.ui.TokenSlayerColors
+import com.tokenslayer.ui.WrapLayout
 import com.tokenslayer.utils.TokenEstimator
 import java.awt.*
 import java.awt.event.ActionEvent
@@ -70,8 +71,6 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         content.add(buildSection("🕐 Recent Activity", recentPanel))
         content.add(Box.createVerticalStrut(8))
         content.add(buildSection("🛡️ Excluded Files (Secrets)", secretsPanel))
-        content.add(Box.createVerticalStrut(12))
-        content.add(buildActionButtons())
 
         add(
             JBScrollPane(content).apply {
@@ -80,6 +79,11 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             },
             BorderLayout.CENTER,
         )
+
+        // Pinned footer. These were previously the last item inside the scrolled content, so on
+        // any project with a few sections' worth of data they were only reachable by scrolling
+        // to the very bottom. Only the stats scroll now; the actions stay put.
+        add(buildActionButtons(), BorderLayout.SOUTH)
     }
 
     // ── Hero section ──────────────────────────────────────────────────────────
@@ -193,8 +197,16 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     // ── Action buttons ────────────────────────────────────────────────────────
 
     private fun buildActionButtons(): JPanel {
-        val panel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0))
+        // WrapLayout, not FlowLayout: FlowLayout reports a single-row preferred size, so in a
+        // narrow tool window the buttons that didn't fit were clipped away one at a time.
+        // Wrapping keeps all three reachable at any width.
+        val panel = JPanel(WrapLayout(FlowLayout.LEFT, 8, 4))
         panel.isOpaque = false
+        panel.border =
+            BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, TokenSlayerColors.border),
+                EmptyBorder(8, 0, 0, 0),
+            )
 
         val analyzeBtn =
             JButton("🔄 Analyze Workspace").apply {

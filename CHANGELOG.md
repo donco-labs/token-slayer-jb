@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Dashboard action buttons (**Analyze Workspace**, **Copy Summary**, **Export Report**) are pinned
+  to the bottom of the tool window instead of sitting at the end of the scrolled content, where
+  they were only reachable after scrolling past every section.
+- Those buttons no longer disappear one by one as the tool window is narrowed; they now wrap onto
+  additional rows instead of being clipped.
+
+## [0.4.0]
+
 ### Changed
 
 - Workspace analysis reports progress in the TokenSlayer tool window ("Analyzing… N / M files") and
