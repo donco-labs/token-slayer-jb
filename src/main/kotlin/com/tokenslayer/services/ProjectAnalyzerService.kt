@@ -165,11 +165,12 @@ class ProjectAnalyzerService(private val project: Project) : DumbAware {
     }
 
     private fun notifyIndexFailure(e: Throwable) {
-        val message = if (hasIOCause(e)) {
-            "Project index appears corrupted — try File > Invalidate Caches and Restart."
-        } else {
-            "Could not scan the project (${e.javaClass.simpleName}). Workspace analysis was skipped."
-        }
+        val message =
+            if (hasIOCause(e)) {
+                "Project index appears corrupted — try File > Invalidate Caches and Restart."
+            } else {
+                "Could not scan the project (${e.javaClass.simpleName}). Workspace analysis was skipped."
+            }
         notify(message, NotificationType.WARNING)
     }
 

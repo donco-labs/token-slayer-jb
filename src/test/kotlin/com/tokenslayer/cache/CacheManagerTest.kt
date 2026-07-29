@@ -98,4 +98,53 @@ class CacheManagerTest {
         val h2 = CacheManager.contentHash("content B")
         assertNotEquals(h1, h2)
     }
+
+    // ── Path index (added with getEntryByPath) ───────────────────────────────
+
+    @Test fun `getEntryByPath finds an entry by its file path`() {
+        cache.put(makeEntry("/src/Foo.java", "abc123"))
+        assertEquals("abc123", cache.getEntryByPath("/src/Foo.java")?.contentHash)
+        assertNull(cache.getEntryByPath("/src/Nope.java"))
+    }
+
+    @Test fun `re-caching a changed file replaces the old revision`() {
+        // Same path, new content hash: the stale row must go, or the cache accumulates one
+        // entry per historical revision and the dashboard counts the file repeatedly.
+        cache.put(makeEntry("/src/Foo.java", "hash-v1"))
+        cache.put(makeEntry("/src/Foo.java", "hash-v2"))
+        assertEquals(1, cache.size)
+        assertEquals("hash-v2", cache.getEntryByPath("/src/Foo.java")?.contentHash)
+        assertNull(cache.get("hash-v1"))
+    }
+
+    @Test fun `invalidate clears the path index too`() {
+        cache.put(makeEntry("/src/Foo.java", "abc123"))
+        cache.invalidate("/src/Foo.java")
+        assertNull(cache.getEntryByPath("/src/Foo.java"))
+        assertNull(cache.get("abc123"))
+        assertEquals(0, cache.size)
+    }
+
+    @Test fun `clear empties the path index too`() {
+        cache.put(makeEntry("/src/Foo.java", "abc123"))
+        cache.put(makeEntry("/src/Bar.java", "def456"))
+        cache.clear()
+        assertNull(cache.getEntryByPath("/src/Foo.java"))
+        assertNull(cache.getEntryByPath("/src/Bar.java"))
+    }
+
+    @Test fun `LRU eviction does not leave a dangling path index entry`() {
+        // Overfill past the default cap so the eldest rows are evicted, then confirm the index
+        // agrees with the map: a stale index entry would resolve to null and look like a bug.
+        val cap = CacheManager.DEFAULT_MAX_ENTRIES
+        repeat(cap + 25) { i -> cache.put(makeEntry("/src/F$i.java", "hash$i")) }
+        assertEquals(cap, cache.size)
+        for (i in 0 until cap + 25) {
+            val byPath = cache.getEntryByPath("/src/F$i.java")
+            if (byPath != null) assertEquals("hash$i", byPath.contentHash)
+        }
+        // The earliest entries are the ones that should have gone.
+        assertNull(cache.getEntryByPath("/src/F0.java"))
+        assertNotNull(cache.getEntryByPath("/src/F${cap + 24}.java"))
+    }
 }

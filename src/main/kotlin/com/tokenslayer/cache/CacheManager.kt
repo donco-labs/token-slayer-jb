@@ -64,12 +64,30 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
             return TokenSlayerSettings.getInstance().cacheMaxEntries
         }
 
+    /**
+     * Secondary index: file path → content hash.
+     *
+     * The cache is keyed by content hash, but the decorator, the inlay collector and the MCP
+     * server all look entries up *by path*. Those were linear scans over a full copy of the map —
+     * on the project tree that ran per node per repaint. This keeps them O(1). Every mutation of
+     * [lruMap] must maintain it, including LRU eviction.
+     */
+    private val pathIndex: HashMap<String, String> = HashMap()
+
     // In-memory LRU map (access-ordered LinkedHashMap)
     private val lruMap: LinkedHashMap<String, CacheEntry> =
         object :
             LinkedHashMap<String, CacheEntry>(DEFAULT_MAX_ENTRIES, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry>?): Boolean {
-                return size > maxEntries
+                val evicting = size > maxEntries
+                if (evicting && eldest != null) {
+                    // Only drop the index entry if it still points at the row being evicted; a
+                    // newer hash for the same path must not be unindexed.
+                    if (pathIndex[eldest.value.filePath] == eldest.key) {
+                        pathIndex.remove(eldest.value.filePath)
+                    }
+                }
+                return evicting
             }
         }
 
@@ -103,6 +121,11 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
      */
     fun put(entry: CacheEntry) =
         synchronized(lruMap) {
+            // A file whose content changed gets a new hash; drop the stale row so the cache does
+            // not accumulate one entry per historical revision of the same path.
+            pathIndex.put(entry.filePath, entry.contentHash)?.let { previousHash ->
+                if (previousHash != entry.contentHash) lruMap.remove(previousHash)
+            }
             lruMap[entry.contentHash] = entry
             log.debug("Cached skeleton for ${entry.filePath} (${entry.reductionPct}% reduction)")
         }
@@ -112,7 +135,8 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
      */
     fun invalidate(filePath: String) =
         synchronized(lruMap) {
-            val removed = lruMap.entries.removeIf { it.value.filePath == filePath }
+            val hash = pathIndex.remove(filePath)
+            val removed = if (hash != null) lruMap.remove(hash) != null else false
             if (removed) log.debug("Invalidated cache for $filePath")
         }
 
@@ -122,6 +146,7 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
     fun clear() =
         synchronized(lruMap) {
             lruMap.clear()
+            pathIndex.clear()
             cacheHits = 0
             cacheMisses = 0
             log.info("Cache cleared")
@@ -129,6 +154,12 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
 
     /** All current cache entries (for dashboard display). */
     fun allEntries(): List<CacheEntry> = synchronized(lruMap) { lruMap.values.toList() }
+
+    /** The cached entry for a file path, or null. O(1) via [pathIndex]. */
+    fun getEntryByPath(filePath: String): CacheEntry? =
+        synchronized(lruMap) {
+            pathIndex[filePath]?.let { lruMap[it] }
+        }
 
     /** Current cache size. */
     val size: Int get() = synchronized(lruMap) { lruMap.size }
@@ -174,7 +205,9 @@ class CacheManager : PersistentStateComponent<CacheManager.CacheState> {
         // Restore in-memory LRU from persisted state
         synchronized(lruMap) {
             lruMap.clear()
+            pathIndex.clear()
             state.entries.forEach { (hash, se) ->
+                pathIndex[se.filePath] = hash
                 lruMap[hash] =
                     CacheEntry(
                         skeleton = se.skeleton,

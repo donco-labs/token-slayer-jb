@@ -92,6 +92,45 @@ data class FileAnalysisResult(
     val fromCache: Boolean = false,
 )
 
+/**
+ * A single symbol's real source, returned by the `tokenslayer_expand` tool.
+ *
+ * The skeleton tells an assistant what exists; this gives back one implementation without
+ * re-reading the whole file. Without it, the moment the assistant needs a body it must read the
+ * entire file and the skeleton's saving is lost on exactly the file already paid for.
+ */
+data class ExpandedSymbol(
+    val name: String,
+    val qualifiedName: String,
+    val kind: String,
+    val filePath: String,
+    /** 1-based, inclusive — line numbers as a human or an LLM would cite them. */
+    val startLine: Int,
+    val endLine: Int,
+    val source: String,
+    val sourceTokens: Int,
+    val fileTokens: Int,
+) {
+    val tokensSaved: Int get() = (fileTokens - sourceTokens).coerceAtLeast(0)
+}
+
+/**
+ * One record of content actually served to an assistant over MCP.
+ *
+ * Analysis stats measure what *could* be saved across every file scanned; these measure what was
+ * genuinely delivered. Without them there is no way to tell whether an assistant has ever called
+ * the tools at all.
+ */
+data class ServeRecord(
+    val filePath: String,
+    val tool: String,
+    val originalTokens: Int,
+    val servedTokens: Int,
+    val timestamp: Long = System.currentTimeMillis(),
+) {
+    val tokensSaved: Int get() = (originalTokens - servedTokens).coerceAtLeast(0)
+}
+
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
 /**
@@ -108,7 +147,20 @@ data class WorkspaceStats(
     val topSavers: List<CacheEntry> = emptyList(),
     val recentActivity: List<CacheEntry> = emptyList(),
     val excludedFilesList: List<ExcludedFile> = emptyList(),
+    // ── Realized (actually delivered over MCP), as opposed to the potential figures above ──
+    val realizedTokensSaved: Int = 0,
+    val realizedOriginalTokens: Int = 0,
+    val mcpServeCount: Int = 0,
+    val recentServes: List<ServeRecord> = emptyList(),
 ) {
+    /** Reduction across content genuinely served to an assistant. */
+    val realizedReductionPct: Int get() =
+        if (realizedOriginalTokens > 0) {
+            ((realizedTokensSaved.toDouble() / realizedOriginalTokens) * 100).toInt()
+        } else {
+            0
+        }
+
     val reductionPct: Int get() =
         if (totalOriginalTokens > 0) {
             ((totalTokensSaved.toDouble() / totalOriginalTokens) * 100).toInt()

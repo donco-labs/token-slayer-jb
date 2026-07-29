@@ -21,6 +21,29 @@ val pluginVersion: String =
 
 version = pluginVersion
 
+// Expose the resolved version to runtime code as a resource. The MCP handshake reports it in
+// serverInfo, and both PluginManagerCore.getPlugin and PluginManager.getPluginByClass are
+// @ApiStatus.Internal (the Plugin Verifier flags them), while a hardcoded literal silently went
+// stale at 0.2.0 for several releases. A generated properties file keeps one source of truth
+// with no internal API and no extra plugin.
+val generateVersionResource by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/tokenslayer-version")
+    val versionValue = pluginVersion
+    inputs.property("version", versionValue)
+    outputs.dir(outputDir)
+    doLast {
+        val file = outputDir.get().asFile.resolve("tokenslayer-version.properties")
+        file.parentFile.mkdirs()
+        file.writeText("version=$versionValue\n")
+    }
+}
+
+sourceSets {
+    named("main") {
+        resources.srcDir(generateVersionResource)
+    }
+}
+
 kotlin {
     jvmToolchain(17)
 }

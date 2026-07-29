@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tokenslayer_expand` MCP tool** — returns the real source of a single symbol from a file.
+  Previously the only tool was the skeleton, so as soon as an assistant needed one implementation
+  it had to read the whole file, discarding the saving on the very file it had just economised on.
+  Ambiguous or unknown symbol names come back with the list of symbols available in that file, so
+  the assistant can correct itself without reading anything.
+- **Realized savings** — content actually served over MCP is now recorded, and the dashboard's
+  headline figure reports what was genuinely delivered to an assistant. The previous figure summed
+  every file analyzed whether or not anything ever requested it, which meant there was no way to
+  tell whether the tools were being called at all. Potential savings remain, as a separate stat.
+
 ### Fixed
 
 - Dashboard action buttons (**Analyze Workspace**, **Copy Summary**, **Export Report**) are pinned
@@ -14,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they were only reachable after scrolling past every section.
 - Those buttons no longer disappear one by one as the tool window is narrowed; they now wrap onto
   additional rows instead of being clipped.
+- The MCP tool schema declared `enum` as a comma-joined string rather than a JSON array, which
+  validating clients ignore.
+- The MCP handshake reported a hardcoded `serverInfo.version` of 0.2.0 regardless of the installed
+  version; it is now sourced from the build.
+- Cached entries are looked up by path through an index rather than a linear scan over a copy of
+  the whole cache — that scan ran per node per repaint of the project tree.
+- Re-analyzing a changed file no longer leaves the previous revision's entry in the cache.
 
 ## [0.4.0]
 
