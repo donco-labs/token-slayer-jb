@@ -19,29 +19,69 @@ With TokenSlayer:     8-line structural skeleton → 200 tokens consumed (96% re
 
 ## 🔧 GitHub Copilot Integration
 
-TokenSlayer runs an embedded **MCP server** on a stable local port and exposes the
-`tokenslayer_structural_summary` tool. Once registered, Copilot can invoke it autonomously —
-the JetBrains equivalent of VS Code's `#tokenslayer-structural-summary`.
+TokenSlayer runs an embedded **MCP server** on a stable local port and exposes two tools:
+
+| Tool | Purpose |
+|------|---------|
+| `tokenslayer_structural_summary` | Compact skeleton of a file — what exists, without the bodies |
+| `tokenslayer_expand` | The real source of **one** symbol, so the assistant can drill in without re-reading the whole file |
 
 ```
 User:  How is authentication structured in this codebase?
 Copilot → calls tokenslayer_structural_summary
        → receives compact skeleton
        → answers using 200 tokens instead of 5,000
+
+User:  Now show me how validateToken actually works.
+Copilot → calls tokenslayer_expand(symbol: "validateToken")
+       → receives just that function
+       → the skeleton's saving survives instead of being undone by a full-file read
 ```
 
-**Registering the server** (one-time): GitHub Copilot for JetBrains discovers MCP servers from
-its global config at `~/.config/github-copilot/intellij/mcp.json` — it does **not** read a
-per-project file. To register TokenSlayer:
+### Registering the server (one-time)
 
-1. Open **Settings → Tools → TokenSlayer → GitHub Copilot (MCP)**.
-2. Click **Copy Copilot mcp.json snippet** (or copy it from the shown Server URL).
-3. Paste it into `~/.config/github-copilot/intellij/mcp.json` (merge with any existing `servers`).
-4. Reload MCP servers in Copilot.
+GitHub Copilot for JetBrains discovers MCP servers from its **global** config at
+`~/.config/github-copilot/intellij/mcp.json` — it does **not** read a per-project file.
 
-The server port is configurable and stable across restarts, so the registration keeps working.
+1. Open **Settings → Tools → TokenSlayer → GitHub Copilot (MCP)** and note the **Server URL**.
+2. **Merge** an entry into the existing config — do **not** replace the file. Add this alongside
+   your other servers, inside whichever top-level object they already live in:
+
+   ```json
+   "tokenslayer": { "type": "http", "url": "http://localhost:8763/mcp" }
+   ```
+
+   > ⚠️ Use the port shown in Settings. The server prefers 8763 but falls back to an ephemeral
+   > port if that one is taken, and a config pointing at the wrong port fails **silently**.
+
+3. Reload MCP servers in Copilot.
+4. Use Copilot in **agent mode**. Ordinary Copilot Chat does not invoke MCP tools, so a correctly
+   registered server will still never be called from plain chat.
+
 Prefer not to wire up Copilot? The **Copy Skeleton Summary** action pastes a skeleton straight
 into Copilot Chat.
+
+### Troubleshooting: dashboard shows `Served 0`
+
+The dashboard's headline is *realized* savings — tokens in content actually delivered to an
+assistant. `Served 0` alongside a healthy **Potential** figure means analysis is working fine and
+Copilot has simply never called the tools. Work through it in this order:
+
+1. **Is the server up?** With the IDE running:
+
+   ```bash
+   curl -s http://localhost:8763/health
+   curl -s -X POST http://localhost:8763/mcp -H 'Content-Type: application/json' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+   ```
+
+   That should list both tools. If so, the plugin side is fine and the problem is Copilot-side.
+
+2. **Is `tokenslayer` actually in `mcp.json`?** Being registered for *other* MCP servers doesn't
+   register this one.
+3. **Does the port in `mcp.json` match the one in Settings?** See the warning above.
+4. **Were you in agent mode?** This is the most common cause of a perfectly configured server
+   never being invoked.
 
 ## 📊 Features
 
