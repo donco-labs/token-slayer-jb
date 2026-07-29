@@ -10,6 +10,7 @@ import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.compaction.CompactorFactory
 import com.tokenslayer.extraction.PsiSymbolExtractor
 import com.tokenslayer.extraction.SkeletonBuilder
+import com.tokenslayer.extraction.SymbolExpander
 import com.tokenslayer.settings.TokenSlayerSettings
 import com.tokenslayer.types.*
 import com.tokenslayer.utils.SecretsDetector
@@ -29,11 +30,15 @@ class TokenSlayerService(private val project: Project) {
     private val log = logger<TokenSlayerService>()
     private val extractor = PsiSymbolExtractor()
     private val skeletonBuilder = SkeletonBuilder()
+    private val expander = SymbolExpander()
     private val cache get() = CacheManager.getInstance(project)
     private val settings get() = TokenSlayerSettings.getInstance()
 
     val excludedFiles = java.util.concurrent.CopyOnWriteArrayList<ExcludedFile>()
     val recentActivity = java.util.Collections.synchronizedList(mutableListOf<CacheEntry>())
+
+    /** Newest-first log of content actually served over MCP. Bounded; not persisted. */
+    private val mcpServes = mutableListOf<ServeRecord>()
 
     companion object {
         val SUPPORTED_EXTENSIONS =
@@ -51,6 +56,9 @@ class TokenSlayerService(private val project: Project) {
                 "go",
                 "rs",
             )
+
+        /** Keeps the realized-savings log bounded; it is a rolling window, not an audit trail. */
+        const val MAX_SERVE_RECORDS = 500
 
         fun getInstance(project: Project): TokenSlayerService = project.service()
     }
@@ -182,8 +190,83 @@ class TokenSlayerService(private val project: Project) {
     /**
      * Get the cached skeleton for a file, or null if not yet analyzed.
      */
-    fun getCachedSkeleton(filePath: String): String? {
-        return cache.allEntries().firstOrNull { it.filePath == filePath }?.skeleton
+    fun getCachedSkeleton(filePath: String): String? = cache.getEntryByPath(filePath)?.skeleton
+
+    /** The full cached entry for a path — needed to report what a serve actually saved. */
+    fun getCachedEntry(filePath: String): CacheEntry? = cache.getEntryByPath(filePath)
+
+    // ── Expansion ─────────────────────────────────────────────────────────────
+
+    /**
+     * Return the real source of one symbol in [virtualFile].
+     *
+     * The counterpart to skeleton generation: an assistant orients on the skeleton, then pulls
+     * back exactly the implementation it needs instead of re-reading the file, which is where the
+     * skeleton's saving would otherwise be lost.
+     */
+    fun expandSymbol(
+        virtualFile: VirtualFile,
+        symbolQuery: String,
+    ): SymbolExpander.Outcome? {
+        val filePath = virtualFile.path
+        if (virtualFile.extension?.lowercase() !in SUPPORTED_EXTENSIONS) return null
+        if (isIgnored(filePath)) return null
+
+        val content =
+            try {
+                String(virtualFile.contentsToByteArray(), Charsets.UTF_8)
+            } catch (e: Exception) {
+                log.warn("Cannot read file $filePath", e)
+                return null
+            }
+
+        // Never hand back source from a file we refused to summarize for containing secrets.
+        val secretsScan = SecretsDetector.scan(filePath, content)
+        if (secretsScan.hasSecrets) return null
+
+        val psiFile =
+            com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
+                PsiManager.getInstance(project).findFile(virtualFile)
+            } ?: return null
+
+        val language = psiFile.language.id
+        val symbols =
+            try {
+                extractor.extract(psiFile)
+            } catch (e: Exception) {
+                log.warn("Symbol extraction failed for $filePath", e)
+                return null
+            }
+
+        return expander.expand(
+            symbols = symbols,
+            content = content,
+            filePath = filePath,
+            query = symbolQuery,
+            fileTokens = TokenEstimator.estimateForLanguage(content, language),
+            tokenCounter = { TokenEstimator.estimateForLanguage(it, language) },
+        )
+    }
+
+    // ── Realized savings ──────────────────────────────────────────────────────
+
+    /**
+     * Record content actually delivered to an assistant over MCP.
+     *
+     * Analysis stats count what every scanned file *could* save; these count what was genuinely
+     * served. Without this there is no signal that the tools are being called at all.
+     */
+    fun recordServe(
+        filePath: String,
+        tool: String,
+        originalTokens: Int,
+        servedTokens: Int,
+    ) {
+        synchronized(mcpServes) {
+            mcpServes.add(0, ServeRecord(filePath, tool, originalTokens, servedTokens))
+            while (mcpServes.size > MAX_SERVE_RECORDS) mcpServes.removeAt(mcpServes.lastIndex)
+        }
+        log.info("TokenSlayer: served $tool for $filePath ($originalTokens → $servedTokens tokens)")
     }
 
     // ── Stats ─────────────────────────────────────────────────────────────────
@@ -209,7 +292,13 @@ class TokenSlayerService(private val project: Project) {
 
         val topSavers = entries.sortedByDescending { it.tokensSaved }.take(5)
 
+        val serves = synchronized(mcpServes) { mcpServes.toList() }
+
         return WorkspaceStats(
+            realizedTokensSaved = serves.sumOf { it.tokensSaved },
+            realizedOriginalTokens = serves.sumOf { it.originalTokens },
+            mcpServeCount = serves.size,
+            recentServes = serves.take(8),
             totalTokensSaved = totalSaved,
             totalOriginalTokens = totalOriginal,
             filesAnalyzed = entries.size,

@@ -12,6 +12,7 @@ import com.intellij.openapi.util.Computable
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import com.tokenslayer.extraction.SymbolExpander
 import com.tokenslayer.services.TokenSlayerService
 import com.tokenslayer.settings.TokenSlayerSettings
 import com.tokenslayer.types.Verbosity
@@ -50,6 +51,19 @@ class TokenSlayerMcpServer {
             Slashes token usage by 40-95% by replacing raw file content with an AST-driven skeleton.
             Use this instead of reading raw file content when you need to understand code structure,
             find classes/functions, or understand architectural relationships.
+        """
+
+        /** Keeps a "symbol not found" error from returning an unbounded list on a huge file. */
+        const val MAX_SYMBOL_LIST_CHARS = 2_000
+
+        const val EXPAND_TOOL_NAME = "tokenslayer_expand"
+        const val EXPAND_TOOL_DESCRIPTION = """
+            Returns the real source of a single symbol (function, method, class, field) from a file.
+            Use this after tokenslayer_structural_summary, when you have the skeleton and need one
+            specific implementation. Prefer it over reading the whole file: it returns only the
+            symbol's own lines, so the skeleton's token saving is preserved rather than thrown away
+            by re-reading the file. If the symbol name is ambiguous or unknown, the error lists the
+            symbols that are available in that file.
         """
 
         @Volatile
@@ -191,14 +205,26 @@ class TokenSlayerMcpServer {
                 "serverInfo",
                 JsonObject().apply {
                     addProperty("name", SERVER_NAME)
-                    addProperty("version", "0.2.0")
+                    // Read from the plugin descriptor rather than a literal, which had been left
+                    // at 0.2.0 across several releases.
+                    addProperty("version", pluginVersion())
                 },
             )
         }
 
+    private fun stringProperty(description: String): JsonObject =
+        JsonObject().apply {
+            addProperty("type", "string")
+            addProperty("description", description)
+        }
+
+    private fun jsonArrayOf(vararg values: String): com.google.gson.JsonArray =
+        com.google.gson.JsonArray().apply { values.forEach { add(it) } }
+
     private fun buildToolsList(): JsonObject =
         JsonObject().apply {
             val tools = com.google.gson.JsonArray()
+
             tools.add(
                 JsonObject().apply {
                     addProperty("name", TOOL_NAME)
@@ -212,20 +238,16 @@ class TokenSlayerMcpServer {
                                 JsonObject().apply {
                                     add(
                                         "filePath",
-                                        JsonObject().apply {
-                                            addProperty("type", "string")
-                                            addProperty(
-                                                "description",
-                                                "Absolute path to the file to summarize. Omit to use the currently active file.",
-                                            )
-                                        },
+                                        stringProperty(
+                                            "Absolute path to the file to summarize. Omit to use the currently active file.",
+                                        ),
                                     )
                                     add(
                                         "verbosity",
-                                        JsonObject().apply {
-                                            addProperty("type", "string")
-                                            addProperty("enum", "minimal,standard,detailed")
-                                            addProperty("description", "Skeleton verbosity level. Defaults to 'standard'.")
+                                        stringProperty("Skeleton verbosity level. Defaults to 'standard'.").apply {
+                                            // JSON Schema requires `enum` to be an array. This was a
+                                            // comma-joined string, which validating clients ignore.
+                                            add("enum", jsonArrayOf("minimal", "standard", "detailed"))
                                         },
                                     )
                                 },
@@ -235,6 +257,41 @@ class TokenSlayerMcpServer {
                     )
                 },
             )
+
+            tools.add(
+                JsonObject().apply {
+                    addProperty("name", EXPAND_TOOL_NAME)
+                    addProperty("description", EXPAND_TOOL_DESCRIPTION.trimIndent())
+                    add(
+                        "inputSchema",
+                        JsonObject().apply {
+                            addProperty("type", "object")
+                            add(
+                                "properties",
+                                JsonObject().apply {
+                                    add(
+                                        "symbol",
+                                        stringProperty(
+                                            "Name of the symbol to expand, as it appears in the skeleton. " +
+                                                "Qualify it (\"MyClass.doThing\") to disambiguate when a bare " +
+                                                "name occurs more than once.",
+                                        ),
+                                    )
+                                    add(
+                                        "filePath",
+                                        stringProperty(
+                                            "Absolute path to the file containing the symbol. " +
+                                                "Omit to use the currently active file.",
+                                        ),
+                                    )
+                                },
+                            )
+                            add("required", jsonArrayOf("symbol"))
+                        },
+                    )
+                },
+            )
+
             add("tools", tools)
         }
 
@@ -281,21 +338,30 @@ class TokenSlayerMcpServer {
         return found
     }
 
+    /** A resolved (project, filePath) pair, or the error to return instead. */
+    private sealed interface Target {
+        data class Resolved(val project: com.intellij.openapi.project.Project, val filePath: String) : Target
+
+        data class Failed(val error: JsonObject) : Target
+    }
+
     private fun executeTool(
         toolName: String,
         args: JsonObject,
-    ): JsonObject {
-        if (toolName != TOOL_NAME) {
-            return buildToolError("Unknown tool: $toolName")
+    ): JsonObject =
+        when (toolName) {
+            TOOL_NAME -> executeStructuralSummary(args)
+            EXPAND_TOOL_NAME -> executeExpand(args)
+            else -> buildToolError("Unknown tool: $toolName")
         }
 
-        // Optional per-call verbosity. When absent, the configured default is used and the
-        // shared cache is consulted; when present, a fresh skeleton is built at that verbosity.
-        val verbosityOverride =
-            args.get("verbosity")?.asString?.takeIf { it.isNotBlank() }?.let { Verbosity.from(it) }
-
+    /**
+     * Both tools take an optional filePath and fall back to the active editor, and both must
+     * resolve which open workspace the call belongs to. Shared so the two cannot drift apart.
+     */
+    private fun resolveTarget(args: JsonObject): Target {
         val openProjects = ProjectManager.getInstance().openProjects.filterNot { it.isDisposed }
-        if (openProjects.isEmpty()) return buildToolError("No open project found")
+        if (openProjects.isEmpty()) return Target.Failed(buildToolError("No open project found"))
 
         val requestedPath = args.get("filePath")?.asString?.takeIf { it.isNotBlank() }
 
@@ -307,14 +373,18 @@ class TokenSlayerMcpServer {
             when {
                 requestedPath != null ->
                     findProjectContaining(openProjects, requestedPath)
-                        ?: return buildToolError("File is not part of any open project: $requestedPath")
+                        ?: return Target.Failed(
+                            buildToolError("File is not part of any open project: $requestedPath"),
+                        )
                 openProjects.size == 1 -> openProjects.single()
                 else ->
                     // No path and several candidates: fall back to whichever project owns the
                     // focused editor rather than guessing.
                     projectWithActiveEditor(openProjects)
-                        ?: return buildToolError(
-                            "Multiple projects are open — pass an absolute filePath to disambiguate.",
+                        ?: return Target.Failed(
+                            buildToolError(
+                                "Multiple projects are open — pass an absolute filePath to disambiguate.",
+                            ),
                         )
             }
 
@@ -330,15 +400,31 @@ class TokenSlayerMcpServer {
                     }
                     active
                 }
-                ?: return buildToolError("No file specified and no active editor file")
+                ?: return Target.Failed(buildToolError("No file specified and no active editor file"))
+
+        return Target.Resolved(project, filePath)
+    }
+
+    private fun executeStructuralSummary(args: JsonObject): JsonObject {
+        // Optional per-call verbosity. When absent, the configured default is used and the
+        // shared cache is consulted; when present, a fresh skeleton is built at that verbosity.
+        val verbosityOverride =
+            args.get("verbosity")?.asString?.takeIf { it.isNotBlank() }?.let { Verbosity.from(it) }
+
+        val (project, filePath) =
+            when (val t = resolveTarget(args)) {
+                is Target.Failed -> return t.error
+                is Target.Resolved -> t.project to t.filePath
+            }
 
         val tsService = TokenSlayerService.getInstance(project)
 
         // Fast path: at the default verbosity, serve an already-cached skeleton if present.
         if (verbosityOverride == null) {
-            val cachedSkeleton = tsService.getCachedSkeleton(filePath)
-            if (cachedSkeleton != null) {
-                return buildToolSuccess(cachedSkeleton, filePath, fromCache = true)
+            val cached = tsService.getCachedEntry(filePath)
+            if (cached != null) {
+                tsService.recordServe(filePath, TOOL_NAME, cached.originalTokens, cached.skeletonTokens)
+                return buildToolSuccess(cached.skeleton, filePath, fromCache = true)
             }
         }
 
@@ -355,6 +441,8 @@ class TokenSlayerMcpServer {
             return buildToolError("File excluded — contains sensitive data: ${result.secretsScan.reasons.joinToString(", ")}")
         }
 
+        tsService.recordServe(filePath, TOOL_NAME, result.originalTokens, result.skeletonTokens)
+
         return buildToolSuccess(
             result.skeleton,
             filePath,
@@ -363,6 +451,85 @@ class TokenSlayerMcpServer {
             skeletonTokens = result.skeletonTokens,
         )
     }
+
+    /**
+     * Return one symbol's real source. The half of the loop that was missing: without it an
+     * assistant holding a skeleton had to re-read the whole file to see any implementation,
+     * discarding the saving on the very file it had just economised on.
+     */
+    private fun executeExpand(args: JsonObject): JsonObject {
+        val symbolQuery =
+            args.get("symbol")?.asString?.takeIf { it.isNotBlank() }
+                ?: return buildToolError("Missing required argument: symbol")
+
+        val (project, filePath) =
+            when (val t = resolveTarget(args)) {
+                is Target.Failed -> return t.error
+                is Target.Resolved -> t.project to t.filePath
+            }
+
+        val vFile =
+            com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
+                ?: return buildToolError("File not found: $filePath")
+
+        val tsService = TokenSlayerService.getInstance(project)
+        val outcome =
+            tsService.expandSymbol(vFile, symbolQuery)
+                ?: return buildToolError(
+                    "Could not expand in $filePath — unsupported file type, unreadable, " +
+                        "ignored by settings, or excluded for containing sensitive data.",
+                )
+
+        return when (outcome) {
+            is SymbolExpander.Outcome.NotFound ->
+                buildToolError(
+                    buildString {
+                        append("No symbol named '$symbolQuery' in $filePath.")
+                        if (outcome.available.isEmpty()) {
+                            append(" No symbols were extracted from this file.")
+                        } else {
+                            append(" Available symbols: ")
+                            append(outcome.available.joinToString(", ").take(MAX_SYMBOL_LIST_CHARS))
+                        }
+                    },
+                )
+
+            is SymbolExpander.Outcome.Ambiguous ->
+                buildToolError(
+                    "'$symbolQuery' is ambiguous in $filePath. Re-request with one of: " +
+                        outcome.candidates.joinToString(", ").take(MAX_SYMBOL_LIST_CHARS),
+                )
+
+            is SymbolExpander.Outcome.Found -> {
+                val e = outcome.expanded
+                tsService.recordServe(filePath, EXPAND_TOOL_NAME, e.fileTokens, e.sourceTokens)
+                buildToolSuccess(
+                    "// ${e.kind} ${e.qualifiedName} — ${basename(filePath)}:${e.startLine}-${e.endLine}\n" +
+                        e.source,
+                    filePath,
+                    fromCache = false,
+                    originalTokens = e.fileTokens,
+                    skeletonTokens = e.sourceTokens,
+                )
+            }
+        }
+    }
+
+    private fun basename(path: String): String = path.substringAfterLast('/').substringAfterLast('\\')
+
+    /**
+     * Plugin version, read from a resource generated by the build.
+     *
+     * Not looked up through the platform: both PluginManagerCore.getPlugin(PluginId) and
+     * PluginManager.getPluginByClass are @ApiStatus.Internal and the Plugin Verifier flags them.
+     * A literal is worse still — this field silently read 0.2.0 for several releases.
+     */
+    private fun pluginVersion(): String =
+        runCatching {
+            javaClass.getResourceAsStream("/tokenslayer-version.properties")?.use { stream ->
+                java.util.Properties().apply { load(stream) }.getProperty("version")
+            }
+        }.getOrNull() ?: "unknown"
 
     // ── JSON-RPC Helpers ──────────────────────────────────────────────────────
 

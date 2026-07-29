@@ -30,8 +30,12 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val reductionLabel = JBLabel("0%")
     private val filesLabel = JBLabel("0")
     private val cacheHitLabel = JBLabel("0%")
-    private val cachedEntriesLabel = JBLabel("0")
     private val excludedCountLabel = JBLabel("0")
+    private val potentialLabel = JBLabel("0")
+    private val servedLabel = JBLabel("0")
+
+    /** Shown when nothing has been served yet, so a 0 hero doesn't read as "broken". */
+    private val heroHintLabel = JBLabel("", SwingConstants.CENTER)
 
     /**
      * Live analysis status. A Task.Backgroundable only reports into the status-bar widget of its
@@ -98,10 +102,16 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
         }
 
         val titleLabel =
-            JBLabel("⚡ Tokens Slayed", SwingConstants.CENTER).apply {
+            JBLabel("⚡ Tokens Saved — delivered to assistants", SwingConstants.CENTER).apply {
                 font = Font(font.name, Font.PLAIN, 11)
                 foreground = TokenSlayerColors.subtext
             }
+
+        heroHintLabel.apply {
+            font = Font(font.name, Font.ITALIC, 10)
+            foreground = TokenSlayerColors.dim
+            isVisible = false
+        }
 
         statusLabel.apply {
             font = Font(font.name, Font.PLAIN, 11)
@@ -109,10 +119,11 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
             isVisible = false
         }
 
-        val inner = JPanel(GridLayout(3, 1))
+        val inner = JPanel(GridLayout(4, 1))
         inner.isOpaque = false
         inner.add(heroLabel)
         inner.add(titleLabel)
+        inner.add(heroHintLabel)
         inner.add(statusLabel)
         panel.add(inner, BorderLayout.CENTER)
         return panel
@@ -121,13 +132,14 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     // ── Stats grid ────────────────────────────────────────────────────────────
 
     private fun buildStatsGrid(): JPanel {
-        val grid = JPanel(GridLayout(2, 3, 8, 8))
+        val grid = JPanel(GridLayout(0, 3, 8, 8))
         grid.isOpaque = false
 
         grid.add(statCard("Reduction", reductionLabel, TokenSlayerColors.GREEN))
         grid.add(statCard("Files", filesLabel, TokenSlayerColors.SKY))
         grid.add(statCard("Cache Hit", cacheHitLabel, TokenSlayerColors.YELLOW))
-        grid.add(statCard("Cached", cachedEntriesLabel, TokenSlayerColors.MAUVE))
+        grid.add(statCard("Potential", potentialLabel, TokenSlayerColors.MAUVE))
+        grid.add(statCard("Served", servedLabel, TokenSlayerColors.SKY))
         grid.add(statCard("Excluded", excludedCountLabel, TokenSlayerColors.RED))
         grid.add(
             statCard(
@@ -287,14 +299,24 @@ class DashboardPanel(private val project: Project) : JPanel(BorderLayout()) {
     }
 
     private fun updateHero(stats: WorkspaceStats) {
-        heroLabel.text = TokenEstimator.format(stats.totalTokensSaved)
+        // The headline is what was actually served to an assistant, not the sum over every file
+        // scanned — the latter counts savings that may never have been realized by anyone.
+        heroLabel.text = TokenEstimator.format(stats.realizedTokensSaved)
+        if (stats.mcpServeCount == 0 && stats.totalTokensSaved > 0) {
+            heroHintLabel.text =
+                "no assistant requests yet — ${TokenEstimator.format(stats.totalTokensSaved)} potential"
+            heroHintLabel.isVisible = true
+        } else {
+            heroHintLabel.isVisible = false
+        }
     }
 
     private fun updateStats(stats: WorkspaceStats) {
-        reductionLabel.text = "${stats.reductionPct}%"
+        reductionLabel.text = "${stats.realizedReductionPct}%"
         filesLabel.text = stats.filesAnalyzed.toString()
         cacheHitLabel.text = "${stats.cacheHitRate}%"
-        cachedEntriesLabel.text = stats.filesAnalyzed.toString()
+        potentialLabel.text = TokenEstimator.format(stats.totalTokensSaved)
+        servedLabel.text = stats.mcpServeCount.toString()
         excludedCountLabel.text = stats.excludedFiles.toString()
     }
 
