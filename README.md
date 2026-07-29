@@ -43,20 +43,65 @@ Copilot → calls tokenslayer_expand(symbol: "validateToken")
 GitHub Copilot for JetBrains discovers MCP servers from its **global** config at
 `~/.config/github-copilot/intellij/mcp.json` — it does **not** read a per-project file.
 
-1. Open **Settings → Tools → TokenSlayer → GitHub Copilot (MCP)** and note the **Server URL**.
-2. **Merge** an entry into the existing config — do **not** replace the file. Add this alongside
-   your other servers, inside whichever top-level object they already live in:
+**Step 1 — get your Server URL.** Open **Settings → Tools → TokenSlayer → GitHub Copilot (MCP)**
+and note the **Server URL**. It looks like `http://localhost:8763/mcp`.
 
-   ```json
-   "tokenslayer": { "type": "http", "url": "http://localhost:8763/mcp" }
-   ```
+> ⚠️ Use the port shown there, not necessarily 8763. The server prefers 8763 but falls back to an
+> ephemeral port if that one is taken, and a config pointing at a dead port fails **silently** —
+> no error, the tools simply never get called.
 
-   > ⚠️ Use the port shown in Settings. The server prefers 8763 but falls back to an ephemeral
-   > port if that one is taken, and a config pointing at the wrong port fails **silently**.
+**Step 2 — add the entry to `mcp.json`.**
 
-3. Reload MCP servers in Copilot.
-4. Use Copilot in **agent mode**. Ordinary Copilot Chat does not invoke MCP tools, so a correctly
-   registered server will still never be called from plain chat.
+```bash
+mkdir -p ~/.config/github-copilot/intellij
+open -e ~/.config/github-copilot/intellij/mcp.json   # or use any editor
+```
+
+*If the file is new or empty*, this is the whole thing:
+
+```json
+{
+  "servers": {
+    "tokenslayer": {
+      "type": "http",
+      "url": "http://localhost:8763/mcp"
+    }
+  }
+}
+```
+
+*If you already have MCP servers*, *merge* — add `tokenslayer` as a sibling. *Do not paste the
+block above over the file; that deletes your other servers.* Going from this:
+
+```json
+{
+  "servers": {
+    "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" }
+  }
+}
+```
+
+to this:
+
+```json
+{
+  "servers": {
+    "github": { "type": "http", "url": "https://api.githubcopilot.com/mcp/" },
+    "tokenslayer": { "type": "http", "url": "http://localhost:8763/mcp" }
+  }
+}
+```
+
+> If your existing file uses `"mcpServers"` as the top-level key rather than `"servers"`, add
+> `tokenslayer` under that key instead — match whatever is already there. Mind the comma between
+> entries: invalid JSON makes Copilot ignore the file entirely.
+
+**Step 3 — reload.** Click the **GitHub Copilot** icon → **Edit settings** → **MCP Servers**, and
+reload. TokenSlayer should now appear in the server list with its two tools.
+
+**Step 4 — use agent mode.** Ordinary Copilot Chat does **not** invoke MCP tools. A perfectly
+registered server will never be called from plain chat, and the dashboard will keep reading
+`Served 0`. Switch Copilot to agent mode, then ask something about your code.
 
 Prefer not to wire up Copilot? The **Copy Skeleton Summary** action pastes a skeleton straight
 into Copilot Chat.
