@@ -98,7 +98,7 @@ jobs:
           - GitHub Copilot for JetBrains (for MCP tool integration)
 
           ### What's Included
-          - 🔧 GitHub Copilot MCP integration (`tokenslayer_structural_summary` tool)
+          - 🔧 GitHub Copilot MCP integration — search, skeleton, expand, and find-references tools
           - 🧠 PSI-based structural skeleton extraction (40–95% token reduction)
           - 📊 Live dashboard with token savings analytics
           - ⚡ Inline inlay hints per class/function
@@ -107,6 +107,9 @@ jobs:
           - 👁️ Skeleton diff preview
           - 📋 Markdown export report
           - 🌐 Languages: Java, Kotlin, Python, JS/TS, Go, Rust
+          - 📄 Data formats: YAML (Kubernetes manifests, Helm values, GitHub Actions, …)
+
+          See the [changelog](https://github.com/donco-labs/token-slayer-jb/blob/main/CHANGELOG.md) for what's new in this release.
           NOTES
 
       - name: Create GitHub Release
