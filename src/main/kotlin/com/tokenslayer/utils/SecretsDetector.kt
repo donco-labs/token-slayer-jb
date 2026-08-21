@@ -22,27 +22,37 @@ object SecretsDetector {
         val description: String,
     )
 
+    /**
+     * A quoted string OR a bare unquoted token, both of at least [minLength] characters.
+     *
+     * YAML and .env values are conventionally written WITHOUT quotes (`password: hunter2`, not
+     * `password: "hunter2"`) — the patterns below originally required a quote, which silently
+     * passed every unquoted config value straight through. The unquoted branch's charset
+     * excludes whitespace so it can't run on past a natural-language sentence.
+     */
+    private fun valuePattern(minLength: Int): String = """(?:['"][^'"]{$minLength,}['"]|[A-Za-z0-9_\-/+.=]{$minLength,})"""
+
     // ── Content patterns ────────────────────────────────────────────────────
     private val CONTENT_PATTERNS: List<ContentPattern> =
         listOf(
             // API Keys & Tokens
             ContentPattern(
-                Regex("""(?:api[_\-]?key|apikey)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:api[_\-]?key|apikey)\s*[:=]\s*${valuePattern(16)}""", RegexOption.IGNORE_CASE),
                 "API key",
                 Severity.HIGH,
             ),
             ContentPattern(
-                Regex("""(?:secret[_\-]?key|secretkey)\s*[:=]\s*['"][A-Za-z0-9_\-/+=]{16,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:secret[_\-]?key|secretkey)\s*[:=]\s*${valuePattern(16)}""", RegexOption.IGNORE_CASE),
                 "Secret key",
                 Severity.HIGH,
             ),
             ContentPattern(
-                Regex("""(?:access[_\-]?token|accesstoken)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:access[_\-]?token|accesstoken)\s*[:=]\s*${valuePattern(16)}""", RegexOption.IGNORE_CASE),
                 "Access token",
                 Severity.HIGH,
             ),
             ContentPattern(
-                Regex("""(?:auth[_\-]?token|authtoken)\s*[:=]\s*['"][A-Za-z0-9_\-]{16,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:auth[_\-]?token|authtoken)\s*[:=]\s*${valuePattern(16)}""", RegexOption.IGNORE_CASE),
                 "Auth token",
                 Severity.HIGH,
             ),
@@ -50,7 +60,7 @@ object SecretsDetector {
             // AWS
             ContentPattern(Regex("""AKIA[0-9A-Z]{16}"""), "AWS Access Key ID", Severity.HIGH),
             ContentPattern(
-                Regex("""(?:aws[_\-]?secret|aws_secret_access_key)\s*[:=]\s*['"][A-Za-z0-9/+=]{30,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:aws[_\-]?secret|aws_secret_access_key)\s*[:=]\s*${valuePattern(30)}""", RegexOption.IGNORE_CASE),
                 "AWS Secret Key",
                 Severity.HIGH,
             ),
@@ -67,9 +77,13 @@ object SecretsDetector {
                 "Database connection string",
                 Severity.HIGH,
             ),
-            ContentPattern(Regex("""(?:password|passwd|pwd)\s*[:=]\s*['"][^'"]{6,}""", RegexOption.IGNORE_CASE), "Password", Severity.HIGH),
             ContentPattern(
-                Regex("""(?:db[_\-]?password|database[_\-]?password)\s*[:=]\s*['"][^'"]{4,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:password|passwd|pwd)\s*[:=]\s*${valuePattern(6)}""", RegexOption.IGNORE_CASE),
+                "Password",
+                Severity.HIGH,
+            ),
+            ContentPattern(
+                Regex("""(?:db[_\-]?password|database[_\-]?password)\s*[:=]\s*${valuePattern(4)}""", RegexOption.IGNORE_CASE),
                 "Database password",
                 Severity.HIGH,
             ),
@@ -85,19 +99,21 @@ object SecretsDetector {
             ContentPattern(Regex("""AIza[0-9A-Za-z_\-]{35}""", RegexOption.IGNORE_CASE), "Google API key", Severity.HIGH),
             // JWT
             ContentPattern(
-                Regex("""(?:jwt[_\-]?secret|jwt_secret_key)\s*[:=]\s*['"][^'"]{8,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:jwt[_\-]?secret|jwt_secret_key)\s*[:=]\s*${valuePattern(8)}""", RegexOption.IGNORE_CASE),
                 "JWT secret",
                 Severity.HIGH,
             ),
             // SSH
             ContentPattern(
-                Regex("""(?:ssh[_\-]?pass|sshpass)\s*[:=]\s*['"][^'"]{4,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:ssh[_\-]?pass|sshpass)\s*[:=]\s*${valuePattern(4)}""", RegexOption.IGNORE_CASE),
                 "SSH password",
                 Severity.HIGH,
             ),
-            // Generic environment secrets
+            // Generic environment secrets. Separator accepts ':' as well as '=' — YAML writes
+            // `MY_TOKEN: value`, .env writes `MY_TOKEN=value`, and this pattern is the catch-all
+            // for keyword variants not covered by a named pattern above.
             ContentPattern(
-                Regex("""(?:SECRET|TOKEN|CREDENTIAL|AUTH)[A-Z_]*\s*=\s*['"]?[A-Za-z0-9_\-/+=]{20,}""", RegexOption.IGNORE_CASE),
+                Regex("""(?:SECRET|TOKEN|CREDENTIAL|AUTH)[A-Z_]*\s*[:=]\s*['"]?[A-Za-z0-9_\-/+=]{20,}""", RegexOption.IGNORE_CASE),
                 "Environment secret",
                 Severity.MEDIUM,
             ),
@@ -127,9 +143,16 @@ object SecretsDetector {
         )
 
     /**
-     * Scan file content and filename for secrets.
-     * Scans only the first 5000 chars for performance (same as VS Code version).
+     * Characters of content actually scanned for secrets. A large multi-document YAML/JSON
+     * manifest can run into the hundreds of KB; the original 5,000-char limit (~100 lines)
+     * covered only a sliver of that and left every secret past it undetected. 200,000 chars
+     * comfortably covers realistic manifests while still bounding the two call sites
+     * (tokenslayer_expand, tokenslayer_references) that reach scan() without going through
+     * TokenSlayerService.analyzeFile's maxFileSizeKB gate first.
      */
+    private const val SCAN_CHAR_LIMIT = 200_000
+
+    /** Scan file content and filename for secrets. */
     fun scan(
         filePath: String,
         content: String,
@@ -154,8 +177,7 @@ object SecretsDetector {
             }
         }
 
-        // Check content (first 5000 chars for performance)
-        val scanContent = content.take(5000)
+        val scanContent = content.take(SCAN_CHAR_LIMIT)
         for (cp in CONTENT_PATTERNS) {
             if (cp.regex.containsMatchIn(scanContent)) {
                 reasons.add("Content match: ${cp.description}")

@@ -19,24 +19,51 @@ With TokenSlayer:     8-line structural skeleton → 200 tokens consumed (96% re
 
 ## 🔧 GitHub Copilot Integration
 
-TokenSlayer runs an embedded **MCP server** on a stable local port and exposes two tools:
+TokenSlayer runs an embedded **MCP server** on a stable local port and exposes four tools:
 
 | Tool | Purpose |
 |------|---------|
-| `tokenslayer_structural_summary` | Compact skeleton of a file — what exists, without the bodies |
+| `tokenslayer_find` | Searches for a class, function, or symbol by name across the **whole project** — the tool an assistant should reach for instead of grep/find-in-files |
+| `tokenslayer_structural_summary` | Compact skeleton of **one** file — what exists, without the bodies. Every signature is tagged with its own `:line` (or `:line-range`), citable directly in `tokenslayer_expand` |
 | `tokenslayer_expand` | The real source of **one** symbol, so the assistant can drill in without re-reading the whole file |
+| `tokenslayer_references` | Every usage of **one** symbol across the whole project — "who calls this", backed by the IDE's own find-usages index rather than a text match |
 
 ```
 User:  How is authentication structured in this codebase?
-Copilot → calls tokenslayer_structural_summary
-       → receives compact skeleton
-       → answers using 200 tokens instead of 5,000
+Copilot → calls tokenslayer_find(query: "auth")
+       → gets back Auth.kt:12 — class AuthService, TokenValidator.kt:8 — fun validateToken(...), …
+       → calls tokenslayer_structural_summary on the file that looks relevant
+       → receives a compact, line-tagged skeleton
+       → answers using a few hundred tokens instead of thousands — no grep involved
 
 User:  Now show me how validateToken actually works.
-Copilot → calls tokenslayer_expand(symbol: "validateToken")
+Copilot → calls tokenslayer_expand(symbol: "validateToken", filePath: ".../TokenValidator.kt")
        → receives just that function
        → the skeleton's saving survives instead of being undone by a full-file read
+
+User:  If I change validateToken's signature, what breaks?
+Copilot → calls tokenslayer_references(symbol: "validateToken", filePath: ".../TokenValidator.kt")
+       → gets back every call site as file:line — enclosing signature
+       → answers without grepping the name and guessing which hits are real calls
+
+User:  I have a Kubernetes manifest bundle — what's in it?
+Copilot → calls tokenslayer_structural_summary(filePath: ".../deploy.yaml")
+       → receives one line per resource: [0] Deployment.api-server, [1] Service.api-server, …
+       → calls tokenslayer_expand(symbol: "Deployment.api-server") for the one that matters
+       → receives just that resource's full YAML, not the whole multi-hundred-line bundle
 ```
+
+### YAML support
+
+`tokenslayer_structural_summary` and `tokenslayer_expand` also understand YAML — the compaction
+just works differently, because a config value **is** the content (unlike code, where a signature
+already conveys the meaning and the body can be dropped). For a `---`-separated manifest bundle
+(the common Kubernetes shape), the skeleton collapses to one line per resource, addressable by
+`Kind.name`. Within one document: a list of many same-shaped map items (e.g. a long `env:` list)
+collapses to its first item plus a count, a long scalar (a certificate, an inline script, base64
+data) is elided to its length, and deep nesting collapses past a fixed depth. `tokenslayer_find`
+and `tokenslayer_references` remain code-only — "where is this defined" and "who calls this" have
+no clean analog for an arbitrary config key.
 
 ### Registering the server (one-time)
 
@@ -120,7 +147,7 @@ Copilot has simply never called the tools. Work through it in this order:
         -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
    ```
 
-   That should list both tools. If so, the plugin side is fine and the problem is Copilot-side.
+   That should list all four tools. If so, the plugin side is fine and the problem is Copilot-side.
 
 2. **Is `tokenslayer` actually in `mcp.json`?** Being registered for *other* MCP servers doesn't
    register this one.
@@ -130,7 +157,7 @@ Copilot has simply never called the tools. Work through it in this order:
 
 ## 📊 Features
 
-- **🔧 Copilot MCP Tool** — `tokenslayer_structural_summary` auto-invoked by Copilot Chat
+- **🔧 Copilot MCP Tools** — `tokenslayer_find`, `tokenslayer_structural_summary`, `tokenslayer_expand`, `tokenslayer_references`, auto-invoked by Copilot in agent mode
 - **📊 Live Dashboard** — token savings counter, language breakdown, top savers, cache stats
 - **⚡ Inline Inlay Hints** — `⚡ ~119 lines → ~14 lines skeleton` above each class/function
 - **📂 Project Tree Badges** — color-coded reduction percentages on file nodes
@@ -138,6 +165,7 @@ Copilot has simply never called the tools. Work through it in this order:
 - **👁️ Skeleton Preview** — side-by-side diff view of original vs skeleton
 - **📋 Export Report** — Markdown savings report for the workspace
 - **🌐 Languages** — Java, Kotlin, Python, JS, TypeScript, Go, Rust
+- **📄 Data formats** — YAML (Kubernetes manifests, GitHub Actions, Helm values, docker-compose, …)
 
 ## ⌨️ Commands (Tools menu / right-click)
 

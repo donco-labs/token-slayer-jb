@@ -13,6 +13,8 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import com.tokenslayer.extraction.SymbolExpander
+import com.tokenslayer.extraction.SymbolFinder
+import com.tokenslayer.extraction.SymbolFinderFormat
 import com.tokenslayer.services.TokenSlayerService
 import com.tokenslayer.settings.TokenSlayerSettings
 import com.tokenslayer.types.Verbosity
@@ -47,10 +49,11 @@ class TokenSlayerMcpServer {
         const val SERVER_NAME = "TokenSlayer"
         const val TOOL_NAME = "tokenslayer_structural_summary"
         const val TOOL_DESCRIPTION = """
-            Returns a compact structural skeleton of a source file or the current project.
-            Slashes token usage by 40-95% by replacing raw file content with an AST-driven skeleton.
-            Use this instead of reading raw file content when you need to understand code structure,
-            find classes/functions, or understand architectural relationships.
+            Returns a compact structural skeleton of ONE source file — signatures and structure,
+            not bodies. Slashes token usage by 40-95% versus reading the raw file. Use this once
+            you know the file's path. To locate a symbol or file across the whole project first,
+            use tokenslayer_find instead of grep/find-in-files — it returns citable file:line
+            coordinates usable directly with tokenslayer_expand.
         """
 
         /** Keeps a "symbol not found" error from returning an unbounded list on a huge file. */
@@ -64,6 +67,31 @@ class TokenSlayerMcpServer {
             symbol's own lines, so the skeleton's token saving is preserved rather than thrown away
             by re-reading the file. If the symbol name is ambiguous or unknown, the error lists the
             symbols that are available in that file.
+        """
+
+        const val FIND_TOOL_NAME = "tokenslayer_find"
+        const val FIND_TOOL_DESCRIPTION = """
+            Searches for a class, function, method, or other symbol by name across the WHOLE
+            project — use this instead of grep or find-in-files when you don't yet know which
+            file something is defined in. Backed by the IDE's own project index, so it matches
+            declarations rather than text, and returns each hit as a citable "file:line —
+            signature" usable directly with tokenslayer_expand (for the real source) or
+            tokenslayer_structural_summary (for that file's whole skeleton). Call this FIRST
+            when the target file isn't already known.
+        """
+
+        /** Default and max number of tokenslayer_find results returned per call. */
+        const val DEFAULT_FIND_RESULTS = 20
+        const val MAX_FIND_RESULTS = 50
+
+        const val REFERENCES_TOOL_NAME = "tokenslayer_references"
+        const val REFERENCES_TOOL_DESCRIPTION = """
+            Finds every place a symbol (function, method, class, field) is used across the WHOLE
+            project — "who calls this", as opposed to tokenslayer_expand's "what does this do".
+            Backed by the IDE's own find-usages index, so it returns real references rather than
+            every place the name happens to appear as text. Each hit is a citable "file:line —
+            enclosing signature". Use this before changing or removing a symbol's behavior, to see
+            what depends on it.
         """
 
         @Volatile
@@ -218,6 +246,12 @@ class TokenSlayerMcpServer {
             addProperty("description", description)
         }
 
+    private fun integerProperty(description: String): JsonObject =
+        JsonObject().apply {
+            addProperty("type", "integer")
+            addProperty("description", description)
+        }
+
     private fun jsonArrayOf(vararg values: String): com.google.gson.JsonArray =
         com.google.gson.JsonArray().apply { values.forEach { add(it) } }
 
@@ -292,6 +326,73 @@ class TokenSlayerMcpServer {
                 },
             )
 
+            tools.add(
+                JsonObject().apply {
+                    addProperty("name", FIND_TOOL_NAME)
+                    addProperty("description", FIND_TOOL_DESCRIPTION.trimIndent())
+                    add(
+                        "inputSchema",
+                        JsonObject().apply {
+                            addProperty("type", "object")
+                            add(
+                                "properties",
+                                JsonObject().apply {
+                                    add("query", stringProperty("Symbol or file name (or fragment) to search for."))
+                                    add(
+                                        "limit",
+                                        integerProperty(
+                                            "Maximum results to return. Defaults to $DEFAULT_FIND_RESULTS, " +
+                                                "capped at $MAX_FIND_RESULTS.",
+                                        ),
+                                    )
+                                },
+                            )
+                            add("required", jsonArrayOf("query"))
+                        },
+                    )
+                },
+            )
+
+            tools.add(
+                JsonObject().apply {
+                    addProperty("name", REFERENCES_TOOL_NAME)
+                    addProperty("description", REFERENCES_TOOL_DESCRIPTION.trimIndent())
+                    add(
+                        "inputSchema",
+                        JsonObject().apply {
+                            addProperty("type", "object")
+                            add(
+                                "properties",
+                                JsonObject().apply {
+                                    add(
+                                        "symbol",
+                                        stringProperty(
+                                            "Name of the symbol to find references to, as it appears in the " +
+                                                "skeleton. Qualify it (\"MyClass.doThing\") to disambiguate.",
+                                        ),
+                                    )
+                                    add(
+                                        "filePath",
+                                        stringProperty(
+                                            "Absolute path to the file containing the symbol's declaration. " +
+                                                "Omit to use the currently active file.",
+                                        ),
+                                    )
+                                    add(
+                                        "limit",
+                                        integerProperty(
+                                            "Maximum references to return. Defaults to $DEFAULT_FIND_RESULTS, " +
+                                                "capped at $MAX_FIND_RESULTS.",
+                                        ),
+                                    )
+                                },
+                            )
+                            add("required", jsonArrayOf("symbol"))
+                        },
+                    )
+                },
+            )
+
             add("tools", tools)
         }
 
@@ -338,6 +439,13 @@ class TokenSlayerMcpServer {
         return found
     }
 
+    /**
+     * Which project should a call with no path argument operate on? Shared between
+     * [resolveTarget]'s path-less branch and tokenslayer_find, which never takes a path at all.
+     */
+    private fun selectProjectWithoutPath(projects: List<Project>): Project? =
+        if (projects.size == 1) projects.single() else projectWithActiveEditor(projects)
+
     /** A resolved (project, filePath) pair, or the error to return instead. */
     private sealed interface Target {
         data class Resolved(val project: com.intellij.openapi.project.Project, val filePath: String) : Target
@@ -352,6 +460,8 @@ class TokenSlayerMcpServer {
         when (toolName) {
             TOOL_NAME -> executeStructuralSummary(args)
             EXPAND_TOOL_NAME -> executeExpand(args)
+            FIND_TOOL_NAME -> executeFind(args)
+            REFERENCES_TOOL_NAME -> executeReferences(args)
             else -> buildToolError("Unknown tool: $toolName")
         }
 
@@ -376,11 +486,8 @@ class TokenSlayerMcpServer {
                         ?: return Target.Failed(
                             buildToolError("File is not part of any open project: $requestedPath"),
                         )
-                openProjects.size == 1 -> openProjects.single()
                 else ->
-                    // No path and several candidates: fall back to whichever project owns the
-                    // focused editor rather than guessing.
-                    projectWithActiveEditor(openProjects)
+                    selectProjectWithoutPath(openProjects)
                         ?: return Target.Failed(
                             buildToolError(
                                 "Multiple projects are open — pass an absolute filePath to disambiguate.",
@@ -515,6 +622,97 @@ class TokenSlayerMcpServer {
         }
     }
 
+    /**
+     * Callers/usages of one symbol, project-wide. Symbol resolution mirrors [executeExpand]'s
+     * (same file/path handling, same ambiguous/not-found wording) so a malformed query behaves
+     * the same way regardless of which tool caught it; only the terminal action differs.
+     */
+    private fun executeReferences(args: JsonObject): JsonObject {
+        val symbolQuery =
+            args.get("symbol")?.asString?.takeIf { it.isNotBlank() }
+                ?: return buildToolError("Missing required argument: symbol")
+        val limit =
+            runCatching { args.get("limit")?.asInt }.getOrNull()?.coerceIn(1, MAX_FIND_RESULTS)
+                ?: DEFAULT_FIND_RESULTS
+
+        val (project, filePath) =
+            when (val t = resolveTarget(args)) {
+                is Target.Failed -> return t.error
+                is Target.Resolved -> t.project to t.filePath
+            }
+
+        val vFile =
+            com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(filePath)
+                ?: return buildToolError("File not found: $filePath")
+
+        val tsService = TokenSlayerService.getInstance(project)
+        val outcome =
+            tsService.findReferences(vFile, symbolQuery, limit)
+                ?: return buildToolError(
+                    "Could not search references in $filePath — unsupported file type, unreadable, " +
+                        "ignored by settings, or excluded for containing sensitive data.",
+                )
+
+        return when (outcome) {
+            is TokenSlayerService.ReferenceOutcome.NotFound ->
+                buildToolError(
+                    buildString {
+                        append("No symbol named '$symbolQuery' in $filePath.")
+                        if (outcome.available.isEmpty()) {
+                            append(" No symbols were extracted from this file.")
+                        } else {
+                            append(" Available symbols: ")
+                            append(outcome.available.joinToString(", ").take(MAX_SYMBOL_LIST_CHARS))
+                        }
+                    },
+                )
+
+            is TokenSlayerService.ReferenceOutcome.Ambiguous ->
+                buildToolError(
+                    "'$symbolQuery' is ambiguous in $filePath. Re-request with one of: " +
+                        outcome.candidates.joinToString(", ").take(MAX_SYMBOL_LIST_CHARS),
+                )
+
+            is TokenSlayerService.ReferenceOutcome.Found ->
+                if (outcome.references.isEmpty()) {
+                    buildToolError("No references to '${outcome.resolvedName}' were found in the project.")
+                } else {
+                    buildFindResult(
+                        SymbolFinderFormat.format(
+                            outcome.references,
+                            header = "References to '${outcome.resolvedName}' (${outcome.references.size} found):",
+                        ),
+                    )
+                }
+        }
+    }
+
+    /**
+     * Project-wide symbol search — the tool an assistant should reach for instead of grep when
+     * it doesn't yet know which file holds something. Unlike the other two tools this has no
+     * file to resolve against, so it only needs [resolveTarget]'s project-selection half.
+     */
+    private fun executeFind(args: JsonObject): JsonObject {
+        val query =
+            args.get("query")?.asString?.takeIf { it.isNotBlank() }
+                ?: return buildToolError("Missing required argument: query")
+        val limit =
+            runCatching { args.get("limit")?.asInt }.getOrNull()?.coerceIn(1, MAX_FIND_RESULTS)
+                ?: DEFAULT_FIND_RESULTS
+
+        val openProjects = ProjectManager.getInstance().openProjects.filterNot { it.isDisposed }
+        if (openProjects.isEmpty()) return buildToolError("No open project found")
+        val project =
+            selectProjectWithoutPath(openProjects)
+                ?: return buildToolError("Multiple projects are open — cannot determine which one to search.")
+
+        val matches = SymbolFinder().find(project, query, limit)
+        if (matches.isEmpty()) {
+            return buildToolError("No symbols matching '$query' found in ${project.name}.")
+        }
+        return buildFindResult(SymbolFinderFormat.format(matches))
+    }
+
     private fun basename(path: String): String = path.substringAfterLast('/').substringAfterLast('\\')
 
     /**
@@ -566,47 +764,41 @@ class TokenSlayerMcpServer {
         originalTokens: Int = 0,
         skeletonTokens: Int = 0,
     ): JsonObject =
+        textContent(
+            buildString {
+                appendLine(skeleton)
+                appendLine()
+                appendLine("---")
+                appendLine("📁 File: $filePath")
+                if (originalTokens > 0) {
+                    val saved = originalTokens - skeletonTokens
+                    val pct = ((saved.toDouble() / originalTokens) * 100).toInt()
+                    appendLine(
+                        "⚡ Token reduction: ${TokenEstimator.format(
+                            originalTokens,
+                        )} → ${TokenEstimator.format(skeletonTokens)} ($pct% saved)",
+                    )
+                }
+                if (fromCache) appendLine("✅ Served from cache")
+            },
+        )
+
+    /** tokenslayer_find's results span multiple files, so the single-file/reduction framing above doesn't fit. */
+    private fun buildFindResult(text: String): JsonObject = textContent(text)
+
+    private fun textContent(text: String): JsonObject =
         JsonObject().apply {
             val content = com.google.gson.JsonArray()
             content.add(
                 JsonObject().apply {
                     addProperty("type", "text")
-                    addProperty(
-                        "text",
-                        buildString {
-                            appendLine(skeleton)
-                            appendLine()
-                            appendLine("---")
-                            appendLine("📁 File: $filePath")
-                            if (originalTokens > 0) {
-                                val saved = originalTokens - skeletonTokens
-                                val pct = ((saved.toDouble() / originalTokens) * 100).toInt()
-                                appendLine(
-                                    "⚡ Token reduction: ${TokenEstimator.format(
-                                        originalTokens,
-                                    )} → ${TokenEstimator.format(skeletonTokens)} ($pct% saved)",
-                                )
-                            }
-                            if (fromCache) appendLine("✅ Served from cache")
-                        },
-                    )
+                    addProperty("text", text)
                 },
             )
             add("content", content)
         }
 
-    private fun buildToolError(message: String): JsonObject =
-        JsonObject().apply {
-            val content = com.google.gson.JsonArray()
-            content.add(
-                JsonObject().apply {
-                    addProperty("type", "text")
-                    addProperty("text", "Error: $message")
-                },
-            )
-            add("content", content)
-            addProperty("isError", true)
-        }
+    private fun buildToolError(message: String): JsonObject = textContent("Error: $message").apply { addProperty("isError", true) }
 
     private fun respond(
         exchange: HttpExchange,

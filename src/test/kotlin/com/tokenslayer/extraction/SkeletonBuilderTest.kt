@@ -107,4 +107,52 @@ class SkeletonBuilderTest {
         val skeletonLines = skeleton.lines().size
         assertTrue(skeletonLines < 30, "Expected skeleton < 30 lines but got $skeletonLines")
     }
+
+    @Test fun `class signature carries a 1-based line range tag`() {
+        val symbols = listOf(makeClass("Foo"))
+        val result = builder.build(symbols, "/src/Foo.java", 100)
+        // makeClass uses lineRange = 1..100 (0-based, matching PsiSymbolExtractor); tokenslayer_expand
+        // converts the same way, so a coordinate shown here is directly reusable there.
+        assertTrue("public class Foo  :2-101" in result)
+    }
+
+    @Test fun `method signature carries a single-line tag when start equals end`() {
+        val method =
+            StructuralSymbol(
+                name = "run",
+                kind = SymbolKind.METHOD,
+                kindLabel = "method",
+                signatureLine = "public void run()",
+                lineRange = 6..6,
+            )
+        val cls =
+            StructuralSymbol(
+                name = "Job",
+                kind = SymbolKind.CLASS,
+                kindLabel = "class",
+                signatureLine = "public class Job",
+                lineRange = 0..10,
+                children = listOf(method),
+            )
+        val result = builder.build(listOf(cls), "Job.java", 10)
+        assertTrue("public void run()  :7" in result)
+        assertFalse("public void run()  :7-" in result)
+    }
+
+    @Test fun `enum member lines carry their own line tag`() {
+        val enumSymbol =
+            StructuralSymbol(
+                name = "Status",
+                kind = SymbolKind.ENUM,
+                kindLabel = "enum",
+                signatureLine = "enum Status",
+                lineRange = 0..2,
+                children =
+                    listOf(
+                        StructuralSymbol("ACTIVE", SymbolKind.ENUM_MEMBER, "enum_member", "ACTIVE", 1..1),
+                    ),
+            )
+        val result = builder.build(listOf(enumSymbol), "Status.java", 3, Verbosity.STANDARD)
+        assertTrue("ACTIVE  :2" in result)
+    }
 }

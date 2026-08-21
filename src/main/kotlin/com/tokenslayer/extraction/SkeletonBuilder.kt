@@ -41,16 +41,17 @@ class SkeletonBuilder {
         verbosity: Verbosity,
     ) {
         val indent = "  ".repeat(depth)
+        val tag = lineTag(symbol.lineRange)
 
         when (symbol.kind) {
             SymbolKind.CLASS, SymbolKind.STRUCT, SymbolKind.OBJECT -> {
-                lines.add("$indent${symbol.signatureLine}")
+                lines.add("$indent${symbol.signatureLine}  $tag")
                 buildChildrenLines(symbol.children, lines, depth + 1, verbosity)
                 lines.add("")
             }
 
             SymbolKind.INTERFACE -> {
-                lines.add("$indent${symbol.signatureLine}")
+                lines.add("$indent${symbol.signatureLine}  $tag")
                 if (verbosity != Verbosity.MINIMAL) {
                     buildChildrenLines(symbol.children, lines, depth + 1, verbosity)
                 }
@@ -58,10 +59,10 @@ class SkeletonBuilder {
             }
 
             SymbolKind.ENUM -> {
-                lines.add("${indent}enum ${symbol.name}")
+                lines.add("${indent}enum ${symbol.name}  $tag")
                 if (verbosity != Verbosity.MINIMAL) {
                     symbol.children.forEach { member ->
-                        lines.add("$indent  ${member.name}")
+                        lines.add("$indent  ${member.name}  ${lineTag(member.lineRange)}")
                     }
                 } else {
                     lines.add("$indent  (${symbol.children.size} members)")
@@ -70,38 +71,38 @@ class SkeletonBuilder {
             }
 
             SymbolKind.TRAIT, SymbolKind.IMPL -> {
-                lines.add("$indent${symbol.signatureLine}")
+                lines.add("$indent${symbol.signatureLine}  $tag")
                 buildChildrenLines(symbol.children, lines, depth + 1, verbosity)
                 lines.add("")
             }
 
             SymbolKind.FUNCTION, SymbolKind.METHOD, SymbolKind.CONSTRUCTOR -> {
                 val prefix = treePrefix(depth)
-                lines.add("$indent$prefix${symbol.signatureLine}")
+                lines.add("$indent$prefix${symbol.signatureLine}  $tag")
             }
 
             SymbolKind.PROPERTY, SymbolKind.FIELD -> {
                 if (verbosity != Verbosity.MINIMAL) {
                     val prefix = treePrefix(depth)
-                    lines.add("$indent$prefix${symbol.signatureLine}")
+                    lines.add("$indent$prefix${symbol.signatureLine}  $tag")
                 }
             }
 
             SymbolKind.VARIABLE, SymbolKind.CONSTANT -> {
                 if (verbosity == Verbosity.DETAILED) {
-                    lines.add("$indent${symbol.signatureLine}")
+                    lines.add("$indent${symbol.signatureLine}  $tag")
                 }
             }
 
             SymbolKind.MODULE, SymbolKind.NAMESPACE -> {
-                lines.add("$indent${symbol.signatureLine}")
+                lines.add("$indent${symbol.signatureLine}  $tag")
                 buildChildrenLines(symbol.children, lines, depth + 1, verbosity)
                 lines.add("")
             }
 
             else -> {
                 if (verbosity == Verbosity.DETAILED) {
-                    lines.add("$indent${symbol.signatureLine}")
+                    lines.add("$indent${symbol.signatureLine}  $tag")
                 }
             }
         }
@@ -119,6 +120,13 @@ class SkeletonBuilder {
     }
 
     private fun treePrefix(depth: Int): String = if (depth == 0) "" else "├─ "
+
+    /** `:12` or `:12-45` — same coordinate format tokenslayer_expand uses to cite a symbol. */
+    private fun lineTag(range: IntRange): String {
+        val start = range.first + 1
+        val end = range.last + 1
+        return if (start == end) ":$start" else ":$start-$end"
+    }
 
     private fun basename(filePath: String): String = filePath.split("/", "\\").lastOrNull() ?: filePath
 
