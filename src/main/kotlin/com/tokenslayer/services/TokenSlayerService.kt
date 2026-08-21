@@ -9,12 +9,16 @@ import com.intellij.psi.PsiManager
 import com.tokenslayer.cache.CacheManager
 import com.tokenslayer.compaction.CompactorFactory
 import com.tokenslayer.extraction.PsiSymbolExtractor
+import com.tokenslayer.extraction.ReferenceFinder
 import com.tokenslayer.extraction.SkeletonBuilder
 import com.tokenslayer.extraction.SymbolExpander
 import com.tokenslayer.settings.TokenSlayerSettings
 import com.tokenslayer.types.*
 import com.tokenslayer.utils.SecretsDetector
 import com.tokenslayer.utils.TokenEstimator
+import com.tokenslayer.yaml.YamlParser
+import com.tokenslayer.yaml.YamlSkeletonBuilder
+import com.tokenslayer.yaml.YamlStructuralAdapter
 
 /**
  * Project-level service.
@@ -31,6 +35,9 @@ class TokenSlayerService(private val project: Project) {
     private val extractor = PsiSymbolExtractor()
     private val skeletonBuilder = SkeletonBuilder()
     private val expander = SymbolExpander()
+    private val referenceFinder = ReferenceFinder()
+    private val yamlParser = YamlParser()
+    private val yamlSkeletonBuilder = YamlSkeletonBuilder()
     private val cache get() = CacheManager.getInstance(project)
     private val settings get() = TokenSlayerSettings.getInstance()
 
@@ -41,6 +48,9 @@ class TokenSlayerService(private val project: Project) {
     private val mcpServes = mutableListOf<ServeRecord>()
 
     companion object {
+        /** Handled by the yaml package instead of PSI — see analyzeFile/expandSymbol's branches. */
+        val YAML_EXTENSIONS = setOf("yaml", "yml")
+
         val SUPPORTED_EXTENSIONS =
             setOf(
                 "java",
@@ -55,7 +65,7 @@ class TokenSlayerService(private val project: Project) {
                 "mjs",
                 "go",
                 "rs",
-            )
+            ) + YAML_EXTENSIONS
 
         /** Keeps the realized-savings log bounded; it is a rolling window, not an audit trail. */
         const val MAX_SERVE_RECORDS = 500
@@ -132,27 +142,32 @@ class TokenSlayerService(private val project: Project) {
             }
         }
 
-        // PSI extraction
-        val psiFile =
-            com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
-                PsiManager.getInstance(project).findFile(virtualFile)
-            } ?: return null
-
-        val language = psiFile.language.id
-        val symbols =
-            try {
-                extractor.extract(psiFile)
-            } catch (e: Exception) {
-                log.warn("Symbol extraction failed for $filePath", e)
-                return null
-            }
-
-        // Apply language compactor
-        val compactor = CompactorFactory.forLanguage(language)
-        val refinedSymbols = compactor?.refineSymbols(symbols, content) ?: symbols
-
         val totalLines = content.lines().size
-        val skeleton = skeletonBuilder.build(refinedSymbols, filePath, totalLines, effectiveVerbosity)
+
+        // YAML has no PSI-independent notion of "structure" worth compacting the same way code
+        // is — see the yaml package for why it gets its own parser and builder instead.
+        val (language, skeleton) =
+            if (ext in YAML_EXTENSIONS) {
+                "yaml" to yamlSkeletonBuilder.build(yamlParser.parse(content), filePath, totalLines)
+            } else {
+                val psiFile =
+                    com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
+                        PsiManager.getInstance(project).findFile(virtualFile)
+                    } ?: return null
+
+                val psiLanguage = psiFile.language.id
+                val symbols =
+                    try {
+                        extractor.extract(psiFile)
+                    } catch (e: Exception) {
+                        log.warn("Symbol extraction failed for $filePath", e)
+                        return null
+                    }
+
+                val compactor = CompactorFactory.forLanguage(psiLanguage)
+                val refinedSymbols = compactor?.refineSymbols(symbols, content) ?: symbols
+                psiLanguage to skeletonBuilder.build(refinedSymbols, filePath, totalLines, effectiveVerbosity)
+            }
 
         // Estimate both sides with the SAME language-aware basis so the reduction figure is
         // honest. Previously the original used estimateForLanguage() while the skeleton used
@@ -209,7 +224,8 @@ class TokenSlayerService(private val project: Project) {
         symbolQuery: String,
     ): SymbolExpander.Outcome? {
         val filePath = virtualFile.path
-        if (virtualFile.extension?.lowercase() !in SUPPORTED_EXTENSIONS) return null
+        val ext = virtualFile.extension?.lowercase()
+        if (ext !in SUPPORTED_EXTENSIONS) return null
         if (isIgnored(filePath)) return null
 
         val content =
@@ -224,19 +240,25 @@ class TokenSlayerService(private val project: Project) {
         val secretsScan = SecretsDetector.scan(filePath, content)
         if (secretsScan.hasSecrets) return null
 
-        val psiFile =
-            com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
-                PsiManager.getInstance(project).findFile(virtualFile)
-            } ?: return null
-
-        val language = psiFile.language.id
-        val symbols =
-            try {
-                extractor.extract(psiFile)
-            } catch (e: Exception) {
-                log.warn("Symbol extraction failed for $filePath", e)
-                return null
-            }
+        val symbols: List<StructuralSymbol>
+        val language: String
+        if (ext in YAML_EXTENSIONS) {
+            symbols = YamlStructuralAdapter.toStructuralSymbols(yamlParser.parse(content))
+            language = "yaml"
+        } else {
+            val psiFile =
+                com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
+                    PsiManager.getInstance(project).findFile(virtualFile)
+                } ?: return null
+            language = psiFile.language.id
+            symbols =
+                try {
+                    extractor.extract(psiFile)
+                } catch (e: Exception) {
+                    log.warn("Symbol extraction failed for $filePath", e)
+                    return null
+                }
+        }
 
         return expander.expand(
             symbols = symbols,
@@ -246,6 +268,76 @@ class TokenSlayerService(private val project: Project) {
             fileTokens = TokenEstimator.estimateForLanguage(content, language),
             tokenCounter = { TokenEstimator.estimateForLanguage(it, language) },
         )
+    }
+
+    // ── References ───────────────────────────────────────────────────────────
+
+    /** Result of resolving tokenslayer_references' symbol query before searching for it. */
+    sealed interface ReferenceOutcome {
+        data class Found(val references: List<FindMatch>, val resolvedName: String) : ReferenceOutcome
+
+        data class Ambiguous(val candidates: List<String>) : ReferenceOutcome
+
+        data class NotFound(val available: List<String>) : ReferenceOutcome
+    }
+
+    /**
+     * Find every project-wide usage of one symbol in [virtualFile] — "who calls this" instead of
+     * tokenslayer_find's "where is this defined". Symbol resolution (bare name, dotted
+     * qualification, ambiguity) is identical to [expandSymbol]; only the terminal action differs,
+     * so a caller sees the same errors for the same malformed query either way.
+     */
+    fun findReferences(
+        virtualFile: VirtualFile,
+        symbolQuery: String,
+        limit: Int,
+    ): ReferenceOutcome? {
+        val filePath = virtualFile.path
+        val ext = virtualFile.extension?.lowercase()
+        // YAML has no PSI reference index to search — a data key has no "who calls this" the
+        // way a code symbol does — so it's excluded here even though it's otherwise supported.
+        if (ext !in SUPPORTED_EXTENSIONS || ext in YAML_EXTENSIONS) return null
+        if (isIgnored(filePath)) return null
+
+        val content =
+            try {
+                String(virtualFile.contentsToByteArray(), Charsets.UTF_8)
+            } catch (e: Exception) {
+                log.warn("Cannot read file $filePath", e)
+                return null
+            }
+
+        // Never resolve a query against a file we refused to summarize for containing secrets.
+        val secretsScan = SecretsDetector.scan(filePath, content)
+        if (secretsScan.hasSecrets) return null
+
+        val psiFile =
+            com.intellij.openapi.application.ReadAction.compute<com.intellij.psi.PsiFile?, RuntimeException> {
+                PsiManager.getInstance(project).findFile(virtualFile)
+            } ?: return null
+
+        val symbols =
+            try {
+                extractor.extract(psiFile)
+            } catch (e: Exception) {
+                log.warn("Symbol extraction failed for $filePath", e)
+                return null
+            }
+
+        val candidates = expander.findCandidates(symbols, symbolQuery)
+        when {
+            candidates.isEmpty() ->
+                return ReferenceOutcome.NotFound(expander.flatten(symbols).map { it.qualifiedName }.sorted())
+            candidates.size > 1 ->
+                return ReferenceOutcome.Ambiguous(candidates.map { it.qualifiedName }.sorted())
+        }
+
+        val match = candidates.single()
+        val element =
+            extractor.findDeclaration(psiFile, match.symbol.name, match.symbol.lineRange.first)
+                ?: return null
+
+        return ReferenceOutcome.Found(referenceFinder.findReferences(element, limit), match.qualifiedName)
     }
 
     // ── Realized savings ──────────────────────────────────────────────────────

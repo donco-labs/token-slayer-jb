@@ -35,6 +35,7 @@ object TokenEstimator {
                 "python" -> 0.85 // Python is concise
                 "typescript", "javascript" -> 0.95
                 "kotlin" -> 0.9
+                "yaml" -> 0.9 // block YAML is mostly indentation and short scalars
                 else -> 1.0
             }
         return (base * multiplier).toInt().coerceAtLeast(1)

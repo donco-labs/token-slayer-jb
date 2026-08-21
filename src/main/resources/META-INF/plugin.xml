@@ -11,7 +11,7 @@
         GitHub Copilot via an embedded MCP server.</p>
         <h3>Features</h3>
         <ul>
-            <li>🔧 <b>GitHub Copilot MCP integration</b> — <code>tokenslayer_structural_summary</code> tool</li>
+            <li>🔧 <b>GitHub Copilot MCP integration</b> — search, skeleton, expand and find-references tools</li>
             <li>📊 <b>Live dashboard</b> — real-time token savings analytics</li>
             <li>⚡ <b>Inline inlay hints</b> — reducibility indicators per class/function</li>
             <li>📂 <b>Project tree badges</b> — color-coded reduction indicators</li>
@@ -19,6 +19,7 @@
             <li>👁️ <b>Skeleton preview</b> — side-by-side diff view</li>
             <li>📋 <b>Export report</b> — Markdown savings report</li>
             <li>🌐 <b>Languages</b>: Java, Kotlin, Python, JS/TS, Go, Rust</li>
+            <li>📄 <b>Data formats</b>: YAML (Kubernetes manifests, Helm values, GitHub Actions, …)</li>
         </ul>
         <p>Requires GitHub Copilot for JetBrains.</p>
     ]]></description>

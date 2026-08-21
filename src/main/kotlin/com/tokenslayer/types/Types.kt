@@ -34,6 +34,11 @@ enum class SymbolKind {
     TYPE_ALIAS,
     TRAIT,
     IMPL,
+
+    // ── Data formats (YAML; JSON/TOML/etc. would reuse these too) ────────────
+    YAML_MAP,
+    YAML_LIST,
+    YAML_SCALAR,
     UNKNOWN,
 }
 
@@ -130,6 +135,20 @@ data class ServeRecord(
 ) {
     val tokensSaved: Int get() = (originalTokens - servedTokens).coerceAtLeast(0)
 }
+
+/**
+ * One symbol located by a project-wide `tokenslayer_find` search — the counterpart to grep for
+ * an assistant that has TokenSlayer's tools. Carries a citable coordinate so a result can be
+ * handed straight to `tokenslayer_expand` without a second lookup.
+ */
+data class FindMatch(
+    val name: String,
+    val kindLabel: String,
+    val filePath: String,
+    /** 1-based, matching ExpandedSymbol's citation convention. */
+    val line: Int,
+    val signatureLine: String,
+)
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 

@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tokenslayer_find` MCP tool** — searches for a class, function, or other symbol by name
+  across the whole project, backed by the IDE's own Go to Class / Go to Symbol index rather than
+  a text search over files. Every hit comes back as a citable `file:line — signature`, usable
+  directly with `tokenslayer_expand`. This is the tool an assistant should reach for instead of
+  grep/find-in-files when it doesn't yet know which file to look in.
+- **Line-cited skeletons** — every signature `tokenslayer_structural_summary` renders now carries
+  its own `:line` (or `:line-range`), in the same citation format `tokenslayer_expand` already
+  used. A skeleton is no longer only descriptive; it's a set of coordinates an assistant can act
+  on directly, without a second lookup just to find where something is.
+- **`tokenslayer_references` MCP tool** — finds every usage of a symbol project-wide ("who calls
+  this"), backed by the IDE's own find-usages index rather than a text match on the name. Each
+  hit is a citable `file:line — enclosing signature`. Symbol resolution (bare name, dotted
+  qualification, ambiguity) is identical to `tokenslayer_expand`'s.
+- **YAML support** — `tokenslayer_structural_summary` and `tokenslayer_expand` now understand
+  `.yaml`/`.yml` files, via a new PSI-free block-YAML parser (no YAML language plugin needed, so
+  this works in every JetBrains IDE, same as the rest of the plugin). Because a config value IS
+  the content — unlike code, compaction happens along different axes: a `---`-separated manifest
+  bundle collapses to one line per resource (addressable by `Kind.name`), a list of many
+  same-shaped map items collapses to its first item plus a count, long scalars (certificates,
+  inline scripts, base64 data) are elided to their length, and deep nesting collapses past a
+  fixed depth. `tokenslayer_find` and `tokenslayer_references` remain code-only — a data key has
+  no "where is this defined" or "who calls this" the way a code symbol does.
+
+### Fixed
+
+- **SecretsDetector missed unquoted config values.** Every credential-shaped content pattern
+  (password, api_key, secret_key, access_token, …) required a quote immediately after the value —
+  `password: "hunter2"` was caught, `password: hunter2` was not. YAML and `.env` files
+  conventionally omit quotes on scalar values, so this was silently letting real credentials in
+  `values.yaml`-style files and rendered Kubernetes Secret manifests through unexcluded. The
+  generic environment-secret pattern also only accepted `=` as a separator; it now accepts `:`
+  too.
+- **SecretsDetector only scanned the first 5,000 characters** (~100 lines) of a file, regardless
+  of the file's actual size. A secret past that point in a large file went undetected. Raised to
+  200,000 characters, which comfortably covers a large multi-document manifest.
+
 ## [0.5.0]
 
 ### Added

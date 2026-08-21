@@ -226,20 +226,42 @@ class PsiSymbolExtractor {
         )
     }
 
-    private fun inferKind(element: PsiElement): SymbolKind {
-        val className = element.javaClass.simpleName.lowercase()
-        return when {
-            "class" in className -> SymbolKind.CLASS
-            "interface" in className -> SymbolKind.INTERFACE
-            "enum" in className -> SymbolKind.ENUM
-            "method" in className || "fun" in className || "function" in className -> SymbolKind.METHOD
-            "field" in className || "property" in className || "variable" in className -> SymbolKind.FIELD
-            "constructor" in className -> SymbolKind.CONSTRUCTOR
-            "struct" in className -> SymbolKind.STRUCT
-            "trait" in className -> SymbolKind.TRAIT
-            "object" in className -> SymbolKind.OBJECT
-            else -> SymbolKind.UNKNOWN
+    /**
+     * Re-locate the live PsiElement behind a previously extracted declaration, identified by the
+     * same (name, start line) pair [SymbolExpander] resolved a query to. StructuralSymbol is
+     * deliberately PSI-free (see SkeletonBuilder / SymbolExpander), so reference search needs the
+     * element itself back. This repeats [collectStructural]'s own walk rather than
+     * reverse-engineering an offset, so it can only find what [extract] itself would have found.
+     */
+    fun findDeclaration(
+        psiFile: PsiFile,
+        name: String,
+        startLine: Int,
+    ): PsiElement? =
+        com.intellij.openapi.application.ReadAction.compute<PsiElement?, RuntimeException> {
+            findDeclarationIn(psiFile, name, startLine)
         }
+
+    private fun findDeclarationIn(
+        parent: PsiElement,
+        name: String,
+        startLine: Int,
+    ): PsiElement? {
+        for (child in parent.children) {
+            if (child is PsiWhiteSpace || child is PsiComment) continue
+            val kind = (child as? PsiNamedElement)?.let { inferKind(child) } ?: SymbolKind.UNKNOWN
+            if (kind != SymbolKind.UNKNOWN) {
+                if ((child as PsiNamedElement).name == name && getRange(child).first == startLine) {
+                    return child
+                }
+                if (kind in CONTAINER_KINDS) {
+                    findDeclarationIn(child, name, startLine)?.let { return it }
+                }
+            } else {
+                findDeclarationIn(child, name, startLine)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun extractSignatureLine(element: PsiElement): String {
@@ -268,4 +290,35 @@ class PsiSymbolExtractor {
         val endLine = doc.getLineNumber(range.endOffset)
         return startLine..endLine
     }
+}
+
+/**
+ * Classify an arbitrary PsiElement by its implementation class name. Shared by
+ * [PsiSymbolExtractor] (deciding what belongs in a skeleton) and by [SymbolFinder] /
+ * [ReferenceFinder] (labelling an already-located element for display) — top-level rather than a
+ * member since none of them need an extractor instance just to classify one element.
+ */
+internal fun inferKind(element: PsiElement): SymbolKind {
+    val className = element.javaClass.simpleName.lowercase()
+    return when {
+        "class" in className -> SymbolKind.CLASS
+        "interface" in className -> SymbolKind.INTERFACE
+        "enum" in className -> SymbolKind.ENUM
+        "method" in className || "fun" in className || "function" in className -> SymbolKind.METHOD
+        "field" in className || "property" in className || "variable" in className -> SymbolKind.FIELD
+        "constructor" in className -> SymbolKind.CONSTRUCTOR
+        "struct" in className -> SymbolKind.STRUCT
+        "trait" in className -> SymbolKind.TRAIT
+        "object" in className -> SymbolKind.OBJECT
+        else -> SymbolKind.UNKNOWN
+    }
+}
+
+/** 1-based line [element] starts on — the citation convention used throughout MCP tool output. */
+internal fun lineNumberOf(element: PsiElement): Int? {
+    if (!element.isValid) return null
+    val containingFile = element.containingFile ?: return null
+    val doc = PsiDocumentManager.getInstance(element.project).getDocument(containingFile) ?: return null
+    val offset = element.textRange?.startOffset ?: return null
+    return doc.getLineNumber(offset) + 1
 }
